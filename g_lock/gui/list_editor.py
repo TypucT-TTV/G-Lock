@@ -36,6 +36,9 @@ def open_list_editor(root: tk.Tk) -> None:
     _ListTab(whitelist_frame, top, Whitelist)
     _ListTab(blacklist_frame, top, Blacklist)
 
+    from gui.dialogs import center_toplevel
+    center_toplevel(top, root)
+
 
 class _ListTab:
     def __init__(
@@ -179,4 +182,6 @@ class _ListTab:
             button_row, t("btn_cancel"), command=form.destroy, accent=theme.NEON_MAGENTA
         ).pack(side="left", padx=6)
 
+        from gui.dialogs import center_toplevel
+        center_toplevel(form, self.root)
         form.grab_set()

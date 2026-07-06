@@ -10,6 +10,22 @@ from gui import theme, widgets
 from gui.i18n import t
 
 
+def center_toplevel(top: tk.Toplevel, parent: tk.Tk | tk.Toplevel) -> None:
+    """Center a Toplevel window relative to its parent window."""
+    top.update_idletasks()
+    p_w = parent.winfo_width()
+    p_h = parent.winfo_height()
+    p_x = parent.winfo_x()
+    p_y = parent.winfo_y()
+
+    t_w = top.winfo_width()
+    t_h = top.winfo_height()
+
+    x = p_x + (p_w - t_w) // 2
+    y = p_y + (p_h - t_h) // 2
+    top.geometry(f"{t_w}x{t_h}+{x}+{y}")
+
+
 def _style_toplevel(top: tk.Toplevel, root: tk.Tk, title: str) -> None:
     top.title(title)
     top.configure(bg=theme.BG)
@@ -49,6 +65,7 @@ def show_confirm(root: tk.Tk, title: str, message: str) -> bool:
         accent=theme.NEON_MAGENTA,
     ).pack(side="left", padx=6)
 
+    center_toplevel(top, root)
     top.protocol("WM_DELETE_WINDOW", lambda: _answer(False))
     top.grab_set()
     top.wait_window(top)
@@ -122,6 +139,7 @@ def show_multiselect(
         accent=theme.NEON_MAGENTA,
     ).pack(side="left", padx=6)
 
+    center_toplevel(top, root)
     top.protocol("WM_DELETE_WINDOW", lambda: _submit(True))
     top.grab_set()
     top.wait_window(top)
@@ -166,6 +184,7 @@ class ProgressDialog:
             accent=theme.NEON_MAGENTA,
         ).pack(pady=(6, 20))
 
+        center_toplevel(self.top, root)
         self.top.grab_set()
         self._poll()
 

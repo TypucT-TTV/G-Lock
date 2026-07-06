@@ -118,7 +118,32 @@ class MainWindow:
 
         window_width = 2 * self._margin + 2 * self._content_pad + self._button_width
         window_height = int(y) + self._margin
-        self.root.geometry(f"{window_width}x{window_height}")
+
+        # Restore window position if saved and valid, otherwise center on screen
+        saved_x = self.menu.config.get("window_x")
+        saved_y = self.menu.config.get("window_y")
+        is_position_valid = False
+        if saved_x is not None and saved_y is not None:
+            try:
+                import ctypes
+                from ctypes import wintypes
+                point = wintypes.POINT(int(saved_x), int(saved_y))
+                # MONITOR_DEFAULTTONULL = 0
+                hmonitor = ctypes.windll.user32.MonitorFromPoint(point, 0)
+                if hmonitor:
+                    is_position_valid = True
+            except Exception:
+                pass
+
+        if is_position_valid:
+            self.root.geometry(f"{window_width}x{window_height}+{saved_x}+{saved_y}")
+        else:
+            # Default: center on primary screen
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x = (screen_width - window_width) // 2
+            y = (screen_height - window_height) // 2
+            self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
         self.canvas = tk.Canvas(self.root, bg=theme.BG, highlightthickness=0)
         self.canvas.place(x=0, y=0, relwidth=1, relheight=1)
@@ -201,6 +226,18 @@ class MainWindow:
         return _dispatch
 
     def _on_quit(self) -> None:
+        try:
+            if self.root.state() == "normal":
+                geom = self.root.geometry()
+                parts = geom.split("+")
+                if len(parts) == 3:
+                    x = int(parts[1])
+                    y = int(parts[2])
+                    self.menu.config.set("window_x", x)
+                    self.menu.config.set("window_y", y)
+                    self.menu.config.save()
+        except Exception:
+            pass
         self.root.destroy()
 
     def _request_state_refresh(self) -> None:

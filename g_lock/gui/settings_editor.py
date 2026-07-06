@@ -332,4 +332,6 @@ def open_settings_editor(root: tk.Tk) -> None:
         accent=theme.NEON_MAGENTA,
     ).pack(side="left", padx=10)
 
+    from gui.dialogs import center_toplevel
+    center_toplevel(top, root)
     top.wait_window(top)

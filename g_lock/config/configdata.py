@@ -19,6 +19,8 @@ class ConfigDataType(TypedDict, total=False):
     sound_lock_dur: int
     sound_unlock_freq: int
     sound_unlock_dur: int
+    window_x: int
+    window_y: int
 
 
 class ConfigData(metaclass=Singleton):
