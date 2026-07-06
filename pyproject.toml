@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "G-Lock"
+version = "1.0.0"
+description = "Custom firewall used to create private lobbies for GTA5 Online"
+authors = ["TheMythologist <leekaixuan2001@gmail.com>"]
+license = "LGPL-3.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10.0,<3.12"
+colorama = "^0.4.6"
+pyinstaller = "^5.12.0"
+pydivert = "2.1.0"
+questionary = "^1.10.0"
+tqdm = "^4.64.1"
+requests = "^2.31.0"
+prsw = "^0.3.1"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.7.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
+pyproject-flake8 = "^6.0.0.post1"
+pre-commit = "^3.3.3"
+mypy = "^1.4"
+types-colorama = "^0.4.15.4"
+types-tqdm = "^4.64.7.11"
+types-requests = "^2.28.11.8"
+pytest = "^7.2.1"
+
+[tool.poetry.scripts]
+build = "g_lock.build:build"
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "E501"]
+
+[tool.isort]
+profile = "black"
+src_paths = ["g_lock", "tests"]
+
+[tool.mypy]
+platform = "win32"
+exclude = ["speed_tests/", "tests/", "build.py"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["pydivert", "prsw"]
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

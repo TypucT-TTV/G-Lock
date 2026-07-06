@@ -1,0 +1,40 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ "*" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: python -m pip install --user poetry
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v2
+        with:
+          install-only: true
+      - name: Build executable
+        run: poetry run build
+      - uses: actions/upload-artifact@v3
+        with:
+          name: G-Lock
+          path: dist/G-Lock-*.exe
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: dist/G-Lock-*.exe
+        if: startsWith(github.ref, 'refs/tags/')

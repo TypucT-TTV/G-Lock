@@ -1,0 +1,131 @@
+====================================================
+ G-LOCK — GTA ONLINE FIREWALL. INSTRUCTIONS (EN)
+====================================================
+
+WHAT THIS IS
+------------
+G-Lock is a local network firewall that helps control who can connect to
+your GTA Online session (protection from randoms, modders, and unwanted
+connections). It does not read or modify the game's memory — it only
+operates at the network packet level (via the WinDivert driver).
+
+LAUNCHING
+---------
+G-Lock MUST be run as Administrator — without that, the WinDivert driver
+can't be registered, and the app will refuse to start (it will show a
+message explaining this).
+
+MAIN WINDOW
+-----------
+At the top: a colored indicator and a text status:
+  * Green / "Open"            — no filter active, everyone connects normally.
+  * Red / "LOCKED"            — a Locked session is active (blocks new joins).
+  * "Active: <session type>"  — some other mode is currently running (see below).
+
+The app's taskbar icon also changes color (green/red) in sync with this
+status.
+
+"STOP SESSION" BUTTON
+----------------------
+A separate button specifically for TURNING OFF whatever mode is currently
+active. It's not the same button you used to start it — it only becomes
+enabled (not greyed out) when something is actually running. Clicking it
+disables the current filter and returns to "Open".
+
+SESSION MODE BUTTONS (each has an indicator dot on the left)
+--------------------------------------------------------------
+The dot next to each button lights up green if that specific mode is the
+one currently active.
+
+1. Solo Session
+   No one can connect to you, but critical R* and Social Club traffic still
+   goes through. If you were in a session with others, they'll lose
+   connection to you.
+
+2. Whitelisted Session
+   Only IP addresses in your Whitelist will be able to connect (see "Edit
+   lists" below).
+
+3. Blacklisted Session
+   IP addresses in your Blacklist won't be able to connect. NOT RECOMMENDED
+   — GTA Online has custom routing specifically for the case of only a
+   handful of IPs being blocked, so this mode's effectiveness is limited.
+
+4. Auto Whitelisted Session
+   Like Whitelisted, but everyone CURRENTLY in the session gets temporarily
+   added to the whitelist automatically (60-second collection, cancellable).
+   If G-Lock spots a suspicious IP (looks like it's tunnelling through R*
+   servers), you'll be asked whether to keep it — these IPs are forgotten
+   once the session ends.
+
+5. Locked Session
+   Blocks NEW join attempts, but doesn't touch anyone already inside. This
+   exact same thing can be toggled with the F9 hotkey (see below) — you
+   don't have to click the button in the window for it.
+
+6. Kick unknowns
+   Temporarily (10 seconds, with a cancellable progress bar) switches the
+   session to whitelist-only, kicking everyone else out, then reverts back
+   automatically. NOT RECOMMENDED as your main line of defense.
+
+7. Empty Session (force Session Host)
+   Splits you off from the current session so you're alone — guaranteeing
+   you become its host.
+
+8. Kick by IP
+   Collects IP addresses in the session (60 seconds, cancellable), then lets
+   you pick exactly who to kick.
+
+F9 HOTKEY
+---------
+F9 is a separate, standalone toggle specifically for "Locked Session". It
+does NOT require pressing any other button first — it works on its own,
+even while GTA has focus and is running in exclusive fullscreen.
+  * Press F9              — the session locks, no new joins.
+  * Press F9 again         — open to everyone again.
+Note: G-Lock only ever keeps ONE filter active at a time. If another
+session type was already running (e.g. Whitelisted), F9 will REPLACE it
+with Lock. Pressing F9 again returns you to "Open", not back to whatever
+was running before.
+
+CONNECTION LOG (WHO JOINED, AND WHEN)
+----------------------------------------
+G-Lock ALWAYS keeps a passive log (even while status is "Open", with no
+active mode) of who sent something that looks like a join attempt, and when.
+This doesn't affect any other mode and doesn't block anything by itself —
+it only records.
+
+Files live in a "logs" folder next to the app, one file per day:
+  logs/connections_2026-07-06.log
+Line format: [date and time] IP address.
+Only the 10 most recent days are kept — older files get deleted
+automatically. If it turns out a cheater got in after a session, open the
+log for that day and check which IPs showed up around the time it
+happened. You can add the IP you find straight to the Blacklist (see below)
+or block it more strictly via Windows Firewall if needed.
+
+EDIT LISTS (WHITELIST / BLACKLIST)
+------------------------------------
+The "Edit lists" button opens a separate window with two tabs (Whitelist /
+Blacklist). There you can:
+  * Add    — a new entry (name + IP address).
+  * Edit   — modify the selected entry.
+  * Delete — remove the selected entry.
+The app validates IP address format and won't let you add a duplicate.
+
+LANGUAGE SWITCHER
+------------------
+At the bottom of the window: "RU" / "EN" buttons. They switch the entire
+interface's language on the fly, and your choice is remembered across
+restarts.
+
+SUPPORT THE AUTHOR
+-------------------
+The "Thank ТурисТ" button opens a donation page in your browser:
+https://www.donationalerts.com/r/typuct_donate
+
+IF SOMETHING GOES WRONG
+-------------------------
+On any failure, the app saves a crashreport_*.log file next to itself and
+shows a window describing the error — this is a deliberate safeguard
+against silently vanishing without a trace, not a bug.
