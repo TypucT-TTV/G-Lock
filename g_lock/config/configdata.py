@@ -17,10 +17,15 @@ class ConfigDataType(TypedDict, total=False):
     sound_enabled: bool
     sound_lock_freq: int
     sound_lock_dur: int
+    sound_lock_vol: int
     sound_unlock_freq: int
     sound_unlock_dur: int
+    sound_unlock_vol: int
     window_x: int
     window_y: int
+    window_w: int
+    window_h: int
+    zoom_factor: float
 
 
 class ConfigData(metaclass=Singleton):
@@ -37,8 +42,11 @@ class ConfigData(metaclass=Singleton):
                 "sound_enabled": True,
                 "sound_lock_freq": 900,
                 "sound_lock_dur": 200,
+                "sound_lock_vol": 80,
                 "sound_unlock_freq": 400,
                 "sound_unlock_dur": 200,
+                "sound_unlock_vol": 80,
+                "zoom_factor": 1.0,
             }
             for k, v in defaults.items():
                 if k not in self.data:
@@ -56,8 +64,11 @@ class ConfigData(metaclass=Singleton):
                 "sound_enabled": True,
                 "sound_lock_freq": 900,
                 "sound_lock_dur": 200,
+                "sound_lock_vol": 80,
                 "sound_unlock_freq": 400,
                 "sound_unlock_dur": 200,
+                "sound_unlock_vol": 80,
+                "zoom_factor": 1.0,
             }
             self.save()
 

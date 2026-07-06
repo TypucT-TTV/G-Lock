@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import threading
 import tkinter as tk
-from tkinter import ttk
-import winsound
 from typing import Any, Literal
 
 from config.configdata import ConfigData
 from gui import theme, widgets
 from gui.i18n import t
+from util.hotkeys import play_beep
 
 # Normalize keysyms for user-friendly display
 _KEY_DISPLAY_NAMES = {
@@ -34,7 +32,8 @@ def open_settings_editor(root: tk.Tk) -> None:
     top.title(t("settings_title"))
     top.configure(bg=theme.BG)
     top.transient(root)
-    top.geometry("450x480")
+    # Taller window to fit all vertical controls comfortably
+    top.geometry("480x670")
     top.resizable(False, False)
     top.grab_set()
 
@@ -49,13 +48,6 @@ def open_settings_editor(root: tk.Tk) -> None:
     new_vk = [hotkey_vk]
     new_name = [hotkey_name]
     is_capturing = [False]
-
-    # Helper function to play sound in thread
-    def test_beep(freq: int, dur: int) -> None:
-        threading.Thread(
-            target=lambda: winsound.Beep(freq, dur),
-            daemon=True,
-        ).start()
 
     # Layout: Hotkey section
     hotkey_frame = tk.LabelFrame(
@@ -151,145 +143,131 @@ def open_settings_editor(root: tk.Tk) -> None:
     ctrls_frame = tk.Frame(sound_frame, bg=theme.BG)
     ctrls_frame.pack(fill="both", expand=True)
 
+    # Helper to build a clean vertical group with grid
+    def build_sound_group(
+        parent: tk.Frame,
+        title: str,
+        default_freq: int,
+        default_dur: int,
+        default_vol: int,
+    ) -> tuple[tk.LabelFrame, tk.Scale, tk.Scale, tk.Scale, widgets.NeonButton]:
+        group = tk.LabelFrame(
+            parent,
+            text=title,
+            bg=theme.BG,
+            fg=theme.TEXT,
+            font=theme.FONT_UI,
+            padx=10,
+            pady=5,
+        )
+        group.columnconfigure(1, weight=1)
+
+        # Labels
+        freq_label = tk.Label(
+            group,
+            text=t("settings_freq", value=default_freq),
+            bg=theme.BG,
+            fg=theme.TEXT,
+            font=theme.FONT_UI,
+            width=18,
+            anchor="w",
+        )
+        freq_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        
+        dur_label = tk.Label(
+            group,
+            text=t("settings_dur", value=default_dur),
+            bg=theme.BG,
+            fg=theme.TEXT,
+            font=theme.FONT_UI,
+            width=18,
+            anchor="w",
+        )
+        dur_label.grid(row=1, column=0, sticky="w", padx=5, pady=2)
+
+        vol_label = tk.Label(
+            group,
+            text=t("settings_vol", value=default_vol),
+            bg=theme.BG,
+            fg=theme.TEXT,
+            font=theme.FONT_UI,
+            width=18,
+            anchor="w",
+        )
+        vol_label.grid(row=2, column=0, sticky="w", padx=5, pady=2)
+
+        # Scales
+        scale_kwargs: dict[str, Any] = {
+            "orient": "horizontal",
+            "showvalue": False,
+            "bg": theme.BG,
+            "fg": theme.TEXT,
+            "highlightthickness": 0,
+            "troughcolor": theme.PANEL,
+            "activebackground": theme.NEON_CYAN,
+        }
+
+        freq_scale = tk.Scale(
+            group,
+            from_=200,
+            to=2000,
+            resolution=50,
+            command=lambda val: freq_label.config(text=t("settings_freq", value=val)),
+            **scale_kwargs,
+        )
+        freq_scale.set(default_freq)
+        freq_scale.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
+
+        dur_scale = tk.Scale(
+            group,
+            from_=50,
+            to=1000,
+            resolution=50,
+            command=lambda val: dur_label.config(text=t("settings_dur", value=val)),
+            **scale_kwargs,
+        )
+        dur_scale.set(default_dur)
+        dur_scale.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
+
+        vol_scale = tk.Scale(
+            group,
+            from_=0,
+            to=100,
+            resolution=5,
+            command=lambda val: vol_label.config(text=t("settings_vol", value=val)),
+            **scale_kwargs,
+        )
+        vol_scale.set(default_vol)
+        vol_scale.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
+
+        test_btn = widgets.NeonButton(
+            group,
+            t("settings_btn_test"),
+            command=lambda: play_beep(int(freq_scale.get()), int(dur_scale.get()), int(vol_scale.get())),
+        )
+        test_btn.grid(row=0, column=2, rowspan=3, padx=10, pady=2)
+
+        return group, freq_scale, dur_scale, vol_scale, test_btn
+
     # Group: On Lock
-    lock_grp = tk.LabelFrame(
+    lock_grp, lock_freq_scale, lock_dur_scale, lock_vol_scale, lock_test_btn = build_sound_group(
         ctrls_frame,
-        text=t("settings_sound_lock"),
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-        padx=10,
-        pady=5,
+        t("settings_sound_lock"),
+        config.get("sound_lock_freq", 900),
+        config.get("sound_lock_dur", 200),
+        config.get("sound_lock_vol", 80),
     )
     lock_grp.pack(fill="x", pady=5)
 
-    lock_freq_label = tk.Label(
-        lock_grp,
-        text="",
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-    )
-    lock_freq_label.pack(side="left", padx=5)
-    lock_freq_scale = tk.Scale(
-        lock_grp,
-        from_=200,
-        to=2000,
-        resolution=50,
-        orient="horizontal",
-        showvalue=False,
-        bg=theme.BG,
-        fg=theme.TEXT,
-        highlightthickness=0,
-        troughcolor=theme.PANEL,
-        activebackground=theme.NEON_CYAN,
-        command=lambda val: lock_freq_label.config(text=t("settings_freq", value=val)),
-    )
-    lock_freq_scale.set(config.get("sound_lock_freq", 900))
-    lock_freq_scale.pack(side="left", fill="x", expand=True, padx=5)
-
-    lock_dur_label = tk.Label(
-        lock_grp,
-        text="",
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-    )
-    lock_dur_label.pack(side="left", padx=5)
-    lock_dur_scale = tk.Scale(
-        lock_grp,
-        from_=50,
-        to=1000,
-        resolution=50,
-        orient="horizontal",
-        showvalue=False,
-        bg=theme.BG,
-        fg=theme.TEXT,
-        highlightthickness=0,
-        troughcolor=theme.PANEL,
-        activebackground=theme.NEON_CYAN,
-        command=lambda val: lock_dur_label.config(text=t("settings_dur", value=val)),
-    )
-    lock_dur_scale.set(config.get("sound_lock_dur", 200))
-    lock_dur_scale.pack(side="left", fill="x", expand=True, padx=5)
-
-    lock_test_btn = widgets.NeonButton(
-        lock_grp,
-        t("settings_btn_test"),
-        command=lambda: test_beep(int(lock_freq_scale.get()), int(lock_dur_scale.get())),
-    )
-    lock_test_btn.pack(side="right", padx=5)
-
     # Group: On Unlock
-    unlock_grp = tk.LabelFrame(
+    unlock_grp, unlock_freq_scale, unlock_dur_scale, unlock_vol_scale, unlock_test_btn = build_sound_group(
         ctrls_frame,
-        text=t("settings_sound_unlock"),
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-        padx=10,
-        pady=5,
+        t("settings_sound_unlock"),
+        config.get("sound_unlock_freq", 400),
+        config.get("sound_unlock_dur", 200),
+        config.get("sound_unlock_vol", 80),
     )
     unlock_grp.pack(fill="x", pady=5)
-
-    unlock_freq_label = tk.Label(
-        unlock_grp,
-        text="",
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-    )
-    unlock_freq_label.pack(side="left", padx=5)
-    unlock_freq_scale = tk.Scale(
-        unlock_grp,
-        from_=200,
-        to=2000,
-        resolution=50,
-        orient="horizontal",
-        showvalue=False,
-        bg=theme.BG,
-        fg=theme.TEXT,
-        highlightthickness=0,
-        troughcolor=theme.PANEL,
-        activebackground=theme.NEON_CYAN,
-        command=lambda val: unlock_freq_label.config(
-            text=t("settings_freq", value=val)
-        ),
-    )
-    unlock_freq_scale.set(config.get("sound_unlock_freq", 400))
-    unlock_freq_scale.pack(side="left", fill="x", expand=True, padx=5)
-
-    unlock_dur_label = tk.Label(
-        unlock_grp,
-        text="",
-        bg=theme.BG,
-        fg=theme.TEXT,
-        font=theme.FONT_UI,
-    )
-    unlock_dur_label.pack(side="left", padx=5)
-    unlock_dur_scale = tk.Scale(
-        unlock_grp,
-        from_=50,
-        to=1000,
-        resolution=50,
-        orient="horizontal",
-        showvalue=False,
-        bg=theme.BG,
-        fg=theme.TEXT,
-        highlightthickness=0,
-        troughcolor=theme.PANEL,
-        activebackground=theme.NEON_CYAN,
-        command=lambda val: unlock_dur_label.config(text=t("settings_dur", value=val)),
-    )
-    unlock_dur_scale.set(config.get("sound_unlock_dur", 200))
-    unlock_dur_scale.pack(side="left", fill="x", expand=True, padx=5)
-
-    unlock_test_btn = widgets.NeonButton(
-        unlock_grp,
-        t("settings_btn_test"),
-        command=lambda: test_beep(int(unlock_freq_scale.get()), int(unlock_dur_scale.get())),
-    )
-    unlock_test_btn.pack(side="right", padx=5)
 
     # Enable/disable sub-controls when sound checkbutton is toggled
     def toggle_sound_controls() -> None:
@@ -297,8 +275,10 @@ def open_settings_editor(root: tk.Tk) -> None:
         for scale in (
             lock_freq_scale,
             lock_dur_scale,
+            lock_vol_scale,
             unlock_freq_scale,
             unlock_dur_scale,
+            unlock_vol_scale,
         ):
             scale.config(state=state)
         lock_test_btn.set_state(state)
@@ -317,8 +297,10 @@ def open_settings_editor(root: tk.Tk) -> None:
         config.data["sound_enabled"] = sound_enabled_var.get()
         config.data["sound_lock_freq"] = int(lock_freq_scale.get())
         config.data["sound_lock_dur"] = int(lock_dur_scale.get())
+        config.data["sound_lock_vol"] = int(lock_vol_scale.get())
         config.data["sound_unlock_freq"] = int(unlock_freq_scale.get())
         config.data["sound_unlock_dur"] = int(unlock_dur_scale.get())
+        config.data["sound_unlock_vol"] = int(unlock_vol_scale.get())
         config.save()
         top.destroy()
 

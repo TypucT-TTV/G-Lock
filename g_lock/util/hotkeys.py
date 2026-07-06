@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import math
+import struct
 import threading
 import time
 import winsound
@@ -22,6 +24,52 @@ _POLL_INTERVAL_SECONDS = 0.05
 _lock = threading.Lock()
 _last_toggle = 0.0
 _DEBOUNCE_SECONDS = 0.5
+
+
+def play_beep(frequency: int, duration_ms: int, volume_percent: int) -> None:
+    """
+    Play a clean sine-wave tone at a specific volume using winsound.PlaySound.
+    Falls back to winsound.Beep if play fails.
+    """
+    try:
+        sample_rate = 44100
+        num_samples = int(sample_rate * (duration_ms / 1000.0))
+        amplitude = int(32767 * (volume_percent / 100.0))
+
+        pcm_data = bytearray()
+        for i in range(num_samples):
+            t = i / sample_rate
+            sample = int(amplitude * math.sin(2 * math.pi * frequency * t))
+            pcm_data.extend(struct.pack("<h", sample))
+
+        data_size = len(pcm_data)
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + data_size,
+            b"WAVE",
+            b"fmt ",
+            16,
+            1,  # PCM
+            1,  # Mono
+            sample_rate,
+            sample_rate * 2,
+            2,
+            16,
+            b"data",
+            data_size
+        )
+
+        winsound.PlaySound(
+            bytes(header + pcm_data),
+            winsound.SND_MEMORY | winsound.SND_ASYNC
+        )
+    except Exception as e:
+        debug_logger.debug("Failed to play custom beep: %s", e)
+        try:
+            winsound.Beep(frequency, duration_ms)
+        except Exception:
+            pass
 
 
 def _foreground_process_name() -> str:
@@ -77,7 +125,8 @@ def _toggle_lock(menu: type[Menu]) -> None:
             if sound_enabled:
                 freq = config.get("sound_unlock_freq", 400)
                 dur = config.get("sound_unlock_dur", 200)
-                winsound.Beep(freq, dur)  # низкий бип = открыто
+                vol = config.get("sound_unlock_vol", 80)
+                play_beep(freq, dur, vol)  # низкий бип = открыто
             print("[HOTKEY] Session UNLOCKED — друзья могут заходить")
         else:
             session = LockedSession(
@@ -88,7 +137,8 @@ def _toggle_lock(menu: type[Menu]) -> None:
             if sound_enabled:
                 freq = config.get("sound_lock_freq", 900)
                 dur = config.get("sound_lock_dur", 200)
-                winsound.Beep(freq, dur)  # высокий бип = заперто
+                vol = config.get("sound_lock_vol", 80)
+                play_beep(freq, dur, vol)  # высокий бип = заперто
             print("[HOTKEY] Session LOCKED — новых не пускает")
     except Exception as e:
         crash_report(e, "G-Lock hotkey callback crashed")
