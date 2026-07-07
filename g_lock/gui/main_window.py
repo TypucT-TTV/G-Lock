@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import tkinter as tk
-from typing import Callable, Optional
+from datetime import date
+from tkinter import simpledialog, ttk
+from typing import Any, Callable, Optional, TextIO
 
-from gui import dpi, i18n, icons, list_editor, theme, widgets, settings_editor
+from config.globallist import Blacklist, Whitelist
+from gui import dpi, i18n, icons, list_editor, settings_editor, theme, widgets
 from gui.adapter import TkUIAdapter
 from gui.i18n import t
 from menu.menu import Menu, Prompts
@@ -39,10 +43,6 @@ _HEADER_HEIGHT_BASE = 26
 # underlying filter, not a bug.
 _SESSION_BUTTON_FILTER_CLASS = {
     "solo_session": "SoloSession",
-    "whitelisted_session": "WhitelistSession",
-    "blacklisted_session": "BlacklistSession",
-    "auto_whitelisted_session": "WhitelistSession",
-    "locked_session": "LockedSession",
     "empty_session": "SoloSession",
 }
 
@@ -88,10 +88,15 @@ class MainWindow:
         self._session_buttons: dict[str, widgets.CanvasButton] = {}
         self.stop_button: widgets.CanvasButton
         self.canvas: tk.Canvas
+        self.tree: Optional[ttk.Treeview] = None
+        self._log_history: list[tuple[str, str, str, str, str]] = []
         self._build_widgets()
         self._apply_state()
         self.root.protocol("WM_DELETE_WINDOW", self._on_quit)
         self._pump_queue()
+
+        self._start_log_listener()
+        self._start_verbose_log_listener()
 
         # Keyboard shortcuts for zoom
         self.root.bind("<Control-equal>", lambda e: self._change_zoom(0.1))
@@ -132,11 +137,13 @@ class MainWindow:
                 y_default += button_gap
         y_default += section_gap + base_button_height + top_bottom_inset
 
-        default_width = 2 * margin + 2 * content_pad + base_button_width
+        left_width = 2 * margin + 2 * content_pad + base_button_width
+        right_width = round(450 * scale)
+        default_width = left_width + right_width
         default_height = int(y_default) + margin
 
         # Apply minimum size constraint
-        self.root.minsize(default_width, default_height)
+        self.root.minsize(left_width, default_height)
 
         # Determine actual window dimensions
         w_width = self.root.winfo_width()
@@ -162,6 +169,7 @@ class MainWindow:
                 try:
                     import ctypes
                     from ctypes import wintypes
+
                     point = wintypes.POINT(int(saved_x), int(saved_y))
                     hmonitor = ctypes.windll.user32.MonitorFromPoint(point, 0)
                     if hmonitor:
@@ -183,7 +191,7 @@ class MainWindow:
             w_height = self.root.winfo_height()
 
         # Calculate responsive layout coordinates
-        button_width = w_width - 2 * margin - 2 * content_pad
+        button_width = base_button_width
         content_x = margin + content_pad
 
         # Calculate actual drawn content height (excluding outer margins)
@@ -220,6 +228,25 @@ class MainWindow:
         language_row_y = pos_y
         pos_y += base_button_height
 
+        # Workaround for ttk Treeview tag color bug in Windows/Tkinter
+        style = ttk.Style()
+        try:
+
+            def fixed_map(option: str) -> list[Any]:
+                return [
+                    elm
+                    for elm in style.map("Treeview", query_opt=option)
+                    if elm[:2] != ("!disabled", "!selected")
+                ]
+
+            style.map(
+                "Treeview",
+                foreground=fixed_map("foreground"),
+                background=fixed_map("background"),
+            )
+        except Exception:
+            pass
+
         self.canvas = tk.Canvas(self.root, bg=theme.BG, highlightthickness=0)
         self.canvas.place(x=0, y=0, relwidth=1, relheight=1)
         widgets.draw_geometric_background(self.canvas, w_width, w_height)
@@ -228,18 +255,31 @@ class MainWindow:
         dot_r = float(round(9 * scale))
         dot_cy = header_y + header_height / 2
         self._status_dot_id = self.canvas.create_oval(
-            content_x, dot_cy - dot_r, content_x + 2 * dot_r, dot_cy + dot_r,
+            content_x,
+            dot_cy - dot_r,
+            content_x + 2 * dot_r,
+            dot_cy + dot_r,
             outline="",
         )
         self._status_text_id = self.canvas.create_text(
-            content_x + 2 * dot_r + 10, dot_cy,
-            text="", fill=theme.TEXT, font=font_heading, anchor="w",
+            content_x + 2 * dot_r + 10,
+            dot_cy,
+            text="",
+            fill=theme.TEXT,
+            font=font_heading,
+            anchor="w",
         )
 
         self.stop_button = widgets.CanvasButton(
-            self.canvas, content_x, stop_button_y, button_width, base_button_height,
-            t("btn_stop_session"), command=self._on_stop_session,
-            accent=theme.NEON_MAGENTA, font=font_ui_bold,
+            self.canvas,
+            content_x,
+            stop_button_y,
+            button_width,
+            base_button_height,
+            "",
+            command=self._on_top_button_click,
+            accent=theme.NEON_MAGENTA,
+            font=font_ui_bold,
         )
 
         self._session_buttons.clear()
@@ -247,10 +287,15 @@ class MainWindow:
             entry_id = str(entry["id"])
             has_dot = entry_id in _SESSION_BUTTON_FILTER_CLASS
             button = widgets.CanvasButton(
-                self.canvas, content_x, button_y, button_width, base_button_height,
+                self.canvas,
+                content_x,
+                button_y,
+                button_width,
+                base_button_height,
                 t(f"menu_{entry_id}"),
                 command=self._make_handler(entry["value"]),
-                show_status_dot=has_dot, font=font_ui,
+                show_status_dot=has_dot,
+                font=font_ui,
             )
             if has_dot:
                 self._session_buttons[entry_id] = button
@@ -259,18 +304,120 @@ class MainWindow:
         current_language = i18n.get_language()
 
         self.ru_button = widgets.CanvasButton(
-            self.canvas, content_x, language_row_y, half_width, base_button_height, "RU",
-            command=lambda: self._on_set_language(i18n.LANG_RU), font=font_ui,
+            self.canvas,
+            content_x,
+            language_row_y,
+            half_width,
+            base_button_height,
+            "RU",
+            command=lambda: self._on_set_language(i18n.LANG_RU),
+            font=font_ui,
         )
         if current_language == i18n.LANG_RU:
             self.ru_button.set_state("disabled")
 
         self.en_button = widgets.CanvasButton(
-            self.canvas, content_x + half_width + 8, language_row_y, half_width,
-            base_button_height, "EN", command=lambda: self._on_set_language(i18n.LANG_EN), font=font_ui,
+            self.canvas,
+            content_x + half_width + 8,
+            language_row_y,
+            half_width,
+            base_button_height,
+            "EN",
+            command=lambda: self._on_set_language(i18n.LANG_EN),
+            font=font_ui,
         )
         if current_language == i18n.LANG_EN:
             self.en_button.set_state("disabled")
+
+        # Place log frame if window is wide enough
+        min_log_width = round(150 * scale)
+        if w_width >= left_width + min_log_width:
+            self.log_frame = tk.Frame(self.canvas, bg=theme.BG, highlightthickness=0)
+            self.log_frame.place(
+                x=left_width,
+                y=margin,
+                width=w_width - left_width - margin,
+                height=w_height - 2 * margin,
+            )
+
+            # Title
+            title_lbl = tk.Label(
+                self.log_frame,
+                text=t("log_panel_title"),
+                fg=theme.NEON_CYAN,
+                bg=theme.BG,
+                font=font_heading,
+                anchor="w",
+            )
+            title_lbl.pack(fill="x", pady=(0, 6))
+
+            # Columns
+            columns = ("time", "action", "ip", "detail")
+            self.tree = ttk.Treeview(self.log_frame, columns=columns, show="headings")
+            self.tree.heading("time", text=t("col_time"))
+            self.tree.heading("action", text=t("col_action"))
+            self.tree.heading("ip", text=t("col_ip"))
+            self.tree.heading("detail", text=t("col_detail"))
+
+            self.tree.column(
+                "time", width=round(70 * scale), minwidth=50, stretch=False
+            )
+            self.tree.column(
+                "action", width=round(75 * scale), minwidth=55, stretch=False
+            )
+            self.tree.column("ip", width=round(120 * scale), minwidth=90, stretch=False)
+            self.tree.column(
+                "detail", width=round(150 * scale), minwidth=100, stretch=True
+            )
+
+            self.tree.tag_configure("allow", foreground=theme.SUCCESS)
+            self.tree.tag_configure("block", foreground=theme.DANGER)
+            self.tree.tag_configure("relay", foreground="#5DADE2")
+            self.tree.tag_configure("sniff", foreground=theme.TEXT_DIM)
+
+            # Scrollbar
+            sb = ttk.Scrollbar(
+                self.log_frame, orient="vertical", command=self.tree.yview
+            )
+            self.tree.configure(yscrollcommand=sb.set)
+
+            sb.pack(side="right", fill="y")
+            self.tree.pack(side="left", fill="both", expand=True)
+
+            # Populate history
+            for time_val, act_val, ip_val, reason_val, tag in self._log_history:
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(time_val, act_val, ip_val, reason_val),
+                    tags=(tag,),
+                )
+            if self._log_history:
+                self.tree.yview_moveto(1.0)
+
+            # Popup Menu
+            self.log_menu = tk.Menu(
+                self.root,
+                tearoff=0,
+                bg=theme.PANEL,
+                fg=theme.TEXT,
+                activebackground=theme.PANEL_HOVER,
+                activeforeground=theme.TEXT,
+            )
+            self.log_menu.add_command(
+                label=t("log_menu_copy_ip"), command=self._log_copy_ip
+            )
+            self.log_menu.add_separator()
+            self.log_menu.add_command(
+                label=t("log_menu_add_whitelist"), command=self._log_add_whitelist
+            )
+            self.log_menu.add_command(
+                label=t("log_menu_add_blacklist"), command=self._log_add_blacklist
+            )
+
+            self.tree.bind("<Button-3>", self._show_log_context_menu)
+        else:
+            self.tree = None
 
     def _on_set_language(self, language: str) -> None:
         i18n.set_language(language)
@@ -283,6 +430,18 @@ class MainWindow:
 
     def _on_stop_session(self) -> None:
         threading.Thread(target=self.menu.stop_session, daemon=True).start()
+
+    def _on_top_button_click(self) -> None:
+        locked = self.menu.context.is_locked()
+        session_name = self.menu.context.active_session_name()
+        if locked or session_name == "SoloSession":
+            threading.Thread(
+                target=self.menu.launch_private_session, args=(False,), daemon=True
+            ).start()
+        else:
+            threading.Thread(
+                target=self.menu.launch_private_session, args=(True,), daemon=True
+            ).start()
 
     def _make_handler(self, value: object) -> Callable[[], None]:
         if value == Prompts.QUIT:
@@ -409,23 +568,29 @@ class MainWindow:
         locked = self.menu.context.is_locked()
         session_name = self.menu.context.active_session_name()
 
-        if locked:
+        is_red = locked or session_name == "SoloSession"
+        if session_name == "SoloSession":
+            text = t("name_solo_session")
+        elif locked:
             text = t("status_locked")
-        elif session_name:
-            name_key = i18n.FILTER_CLASS_NAME_KEY.get(session_name)
-            text = t("status_active", name=t(name_key) if name_key else session_name)
         else:
             text = t("status_open")
 
         self.canvas.itemconfig(
-            self._status_dot_id, fill=theme.DANGER if locked else theme.SUCCESS
+            self._status_dot_id, fill=theme.DANGER if is_red else theme.SUCCESS
         )
         self.canvas.itemconfig(self._status_text_id, text=text)
         self.root.title(f"{self.title_prefix} - {text}")
 
-        self.stop_button.set_state(
-            "normal" if self.menu.context.is_filter_running() else "disabled"
-        )
+        # Top stop/toggle button configuration
+        self.stop_button.set_state("normal")
+        if is_red:
+            self.stop_button.set_text(t("btn_unlock_session"))
+            self.stop_button.set_accent(theme.NEON_CYAN)
+        else:
+            self.stop_button.set_text(t("btn_lock_session"))
+            self.stop_button.set_accent(theme.NEON_MAGENTA)
+
         for entry_id, button in self._session_buttons.items():
             is_active = session_name == _SESSION_BUTTON_FILTER_CLASS[entry_id]
             button.set_status_color(theme.SUCCESS if is_active else theme.TEXT_DISABLED)
@@ -448,3 +613,169 @@ class MainWindow:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    def _start_log_listener(self) -> None:
+        from network.connectionlog import _log_queue
+
+        threading.Thread(
+            target=self._log_listener_loop, args=(_log_queue,), daemon=True
+        ).start()
+
+    def _start_verbose_log_listener(self) -> None:
+        from network.verboselog import _verbose_queue, verbose_log_listener_loop
+
+        threading.Thread(
+            target=verbose_log_listener_loop, args=(_verbose_queue,), daemon=True
+        ).start()
+
+    def _log_listener_loop(self, log_queue: Any) -> None:
+        from network.connectionlog import LOG_DIR, _prune_old_logs
+
+        LOG_DIR.mkdir(exist_ok=True)
+        _prune_old_logs()
+
+        current_date: Optional[date] = None
+        handle: Optional[TextIO] = None
+
+        while True:
+            try:
+                msg = log_queue.get()
+                if msg is None:
+                    break
+
+                timestamp, ip, action, size, reason = msg
+
+                # 1. Write to file
+                today = date.today()
+                if today != current_date:
+                    if handle is not None:
+                        handle.close()
+                    current_date = today
+                    handle = (LOG_DIR / f"connections_{today.isoformat()}.log").open(
+                        "a", encoding="utf-8"
+                    )
+                    _prune_old_logs()
+
+                if handle is not None:
+                    reason_str = f" - {reason}" if reason else ""
+                    handle.write(
+                        f"[{timestamp}] [{action}] {ip} (Size: {size}){reason_str}\n"
+                    )
+                    handle.flush()
+
+                # 2. Forward to GUI main queue
+                def make_gui_task(
+                    m: tuple[str, str, str, int, str]
+                ) -> Callable[[], None]:
+                    return lambda: self._add_log_entry_to_ui(m)
+
+                self.main_queue.put(make_gui_task(msg))
+            except Exception:
+                time.sleep(0.5)
+
+    def _add_log_entry_to_ui(self, msg: tuple[str, str, str, int, str]) -> None:
+        timestamp, ip, action, size, reason = msg
+
+        is_relay = (
+            ip.startswith("52.139.")
+            or ip.startswith("52.140.")
+            or ip.startswith("52.141.")
+            or ip.startswith("52.142.")
+        )
+
+        if action == "BLOCK":
+            tag = "block"
+        elif is_relay:
+            tag = "relay"
+        elif action == "ALLOW":
+            tag = "allow"
+        else:
+            tag = "sniff"
+
+        details = f"Size: {size}"
+        if reason:
+            details += f" ({reason})"
+
+        self._log_history.append((timestamp, action, ip, details, tag))
+        if len(self._log_history) > 100:
+            self._log_history.pop(0)
+
+        if self.tree:
+            children = self.tree.get_children()
+            if len(children) >= 100:
+                self.tree.delete(children[0])
+            self.tree.insert(
+                "", "end", values=(timestamp, action, ip, details), tags=(tag,)
+            )
+            self.tree.yview_moveto(1.0)
+
+    def _get_selected_log_ip(self) -> Optional[str]:
+        if not self.tree:
+            return None
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        item = selection[0]
+        values = self.tree.item(item, "values")
+        if not values or len(values) < 3:
+            return None
+        ip_val = values[2]
+        return str(ip_val) if ip_val is not None else None
+
+    def _log_copy_ip(self) -> None:
+        ip = self._get_selected_log_ip()
+        if not ip:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(ip)
+        self.root.update()
+
+    def _log_add_whitelist(self) -> None:
+        ip = self._get_selected_log_ip()
+        if not ip:
+            return
+        name = simpledialog.askstring(
+            t("dialog_enter_name_title"),
+            t("dialog_enter_name_msg", ip=ip),
+            parent=self.root,
+        )
+        if name:
+            wl = Whitelist()
+            wl.add(ip, name)
+            wl.save()
+            if self.menu.context.active_session_name() == "PrivateSession":
+                is_locked = self.menu.context.is_locked()
+                threading.Thread(
+                    target=self.menu.launch_private_session,
+                    args=(is_locked,),
+                    daemon=True,
+                ).start()
+
+    def _log_add_blacklist(self) -> None:
+        ip = self._get_selected_log_ip()
+        if not ip:
+            return
+        name = simpledialog.askstring(
+            t("dialog_enter_name_title"),
+            t("dialog_enter_name_msg", ip=ip),
+            parent=self.root,
+        )
+        if name:
+            bl = Blacklist()
+            bl.add(ip, name)
+            bl.save()
+            if self.menu.context.active_session_name() == "PrivateSession":
+                is_locked = self.menu.context.is_locked()
+                threading.Thread(
+                    target=self.menu.launch_private_session,
+                    args=(is_locked,),
+                    daemon=True,
+                ).start()
+
+    def _show_log_context_menu(self, event: tk.Event[tk.Misc]) -> None:
+        if not self.tree or not hasattr(self, "log_menu"):
+            return
+        item = self.tree.identify_row(event.y)
+        if item:
+            self.tree.selection_set(item)
+            self.log_menu.post(event.x_root, event.y_root)

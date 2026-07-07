@@ -34,7 +34,7 @@ network traffic through the Windows firewall, so it runs safely alongside BattlE
 1. Download or clone this repository.
 2. Install [Poetry](https://python-poetry.org/): `pip install poetry`
 3. Install dependencies: `poetry install`
-4. Run **as administrator** via `Run Guardian.bat` (or the provided shortcut).
+4. Run **as administrator** via `Run G-Lock.bat` (or the provided shortcut).
 
 ## Usage
 
@@ -45,6 +45,11 @@ network traffic through the Windows firewall, so it runs safely alongside BattlE
 2. Press **F9** to open the lobby (low beep).
 3. Invite your friends and wait for everyone to load in.
 4. Press **F9** again to lock (high beep). No new players can join; your crew stays.
+
+**Real-Time Interactive Connection Logs:**
+* G-Lock features a real-time network panel on the right side of the window.
+* It shows allowed connections (green/blue) and blocked attempts (red).
+* You can right-click any IP in the log to **Copy IP**, **Add to Whitelist**, or **Add to Blacklist** directly with on-the-fly protection reloads.
 
 > Close the app when you're done, otherwise you won't be able to join normal
 > public lobbies while it's running.

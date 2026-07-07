@@ -1,16 +1,17 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 import re
 from abc import ABC, abstractmethod
-from multiprocessing import Manager, Process
+from multiprocessing import Process
 from multiprocessing.connection import PipeConnection
-from multiprocessing.managers import DictProxy, ListProxy
-from typing import Optional
+from typing import Any, Optional
 
 import pydivert
 
 from network.sessioninfo import SessionInfo
-from util.network import ip_in_cidr_block_set
+from util.network import find_matching_cidr_block, ip_in_cidr_block_set
 from util.types import CIDR_BLOCK
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,32 @@ class AbstractPacketFilter(ABC):
         self.ips = ips
         self.priority = priority
         self.queue = connection
-        self.process = Process(target=self.run, daemon=True)
+        self.mode_label = self.__class__.__name__.replace("Session", "")
+        from network.connectionlog import _filter_active_event, _log_queue
+        from network.verboselog import _verbose_queue, build_classification_context
+
+        (
+            verbose_enabled,
+            flood_threshold,
+            whitelist_ips,
+            whitelist_cidr_blocks,
+            dynamic_blacklist,
+        ) = build_classification_context()
+
+        self.process = Process(
+            target=self.run,
+            args=(
+                _log_queue,
+                _filter_active_event,
+                _verbose_queue,
+                verbose_enabled,
+                flood_threshold,
+                whitelist_ips,
+                whitelist_cidr_blocks,
+                dynamic_blacklist,
+            ),
+            daemon=True,
+        )
         self.session_info = session_info
         self.debug_print_decisions = debug
 
@@ -118,21 +144,59 @@ class AbstractPacketFilter(ABC):
     def start(self) -> None:
         self.process.start()
         logger.info("Dispatched %s blocker process", self.__class__.__name__)
+        from network.verboselog import write_marker
+
+        write_marker(f"SESSION STARTED ({self.mode_label})")
 
     def stop(self) -> None:
         self.process.terminate()
+        self.process.join()
+        from network.connectionlog import _filter_active_event
+        from network.verboselog import write_marker
+
+        _filter_active_event.clear()
         logger.info("Terminated %s blocker process", self.__class__.__name__)
+        write_marker(f"SESSION STOPPED ({self.mode_label})")
 
     @abstractmethod
-    def is_packet_allowed(self, packet: pydivert.Packet) -> bool:
+    def is_packet_allowed(self, packet: pydivert.Packet) -> tuple[bool, str]:
         pass
 
-    def run(self) -> None:
+    def run(
+        self,
+        log_queue: Any,
+        filter_active_event: Any,
+        verbose_queue: Any,
+        verbose_enabled: bool,
+        flood_threshold: int,
+        whitelist_ips: set[str],
+        whitelist_cidr_blocks: set[CIDR_BLOCK],
+        dynamic_blacklist: set[CIDR_BLOCK],
+    ) -> None:
+        import time
+
+        from network.connectionlog import REJOIN_COOLDOWN_SECONDS
+        from network.verboselog import VerboseAggregator, canonical_reason, classify_ip
+
+        filter_active_event.set()
+
+        last_seen: dict[tuple[str, bool], float] = {}
+        # Classification only depends on (mostly static) whitelist/dynamic
+        # blacklist data, not on the packet itself, so it's cached per-IP
+        # rather than recomputed every packet — matters most for a flood,
+        # where the same source IP repeats hundreds of times a second.
+        classification_cache: dict[str, str] = {}
+        aggregator = (
+            VerboseAggregator(self.mode_label, flood_threshold, verbose_queue)
+            if verbose_enabled
+            else None
+        )
+
         with contextlib.suppress(KeyboardInterrupt):
             self.queue.send(True)
             with pydivert.WinDivert(PACKET_FILTER, priority=self.priority) as w:
                 for packet in w:
-                    decision = self.is_packet_allowed(packet)
+                    decision, reason = self.is_packet_allowed(packet)
                     if decision:
                         w.send(packet)
 
@@ -141,6 +205,50 @@ class AbstractPacketFilter(ABC):
 
                     if self.debug_print_decisions:
                         print(self.construct_debug_packet_info(packet, decision))
+
+                    ip = packet.ip.src_addr
+                    now = time.monotonic()
+
+                    # Cooldown-based logging to history log
+                    should_log = (
+                        not decision or len(packet.payload) in MATCHMAKING_SIZES
+                    )
+                    if should_log:
+                        cooldown_key = (ip, decision)
+                        if (
+                            cooldown_key not in last_seen
+                            or now - last_seen[cooldown_key] >= REJOIN_COOLDOWN_SECONDS
+                        ):
+                            last_seen[cooldown_key] = now
+                            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                            action = "ALLOW" if decision else "BLOCK"
+                            log_queue.put(
+                                (
+                                    timestamp,
+                                    ip,
+                                    action,
+                                    len(packet.payload),
+                                    reason,
+                                )
+                            )
+
+                    if aggregator is not None and packet.is_inbound:
+                        cls = classification_cache.get(ip)
+                        if cls is None:
+                            cls = classify_ip(
+                                ip,
+                                whitelist_ips,
+                                whitelist_cidr_blocks,
+                                dynamic_blacklist,
+                            )
+                            classification_cache[ip] = cls
+                        aggregator.record(
+                            ip,
+                            packet.src_port,
+                            cls,
+                            decision,
+                            canonical_reason(cls, decision, reason),
+                        )
 
     @staticmethod
     def construct_debug_packet_info(
@@ -167,129 +275,96 @@ class SoloSession(AbstractPacketFilter):
     ):
         super().__init__(set(), priority, connection, session_info, debug)
 
-    def is_packet_allowed(self, packet: pydivert.Packet) -> bool:
+    def is_packet_allowed(self, packet: pydivert.Packet) -> tuple[bool, str]:
         size = len(packet.payload)
 
-        return size in HEARTBEAT_SIZES
+        if size in HEARTBEAT_SIZES:
+            return True, "Heartbeat"
+        return False, "Solo Session Active"
 
 
-class WhitelistSession(AbstractPacketFilter):
+class PrivateSession(AbstractPacketFilter):
     """
-    Packet filter that will allow packets from with source ip present on ips list
-
-    ips: A set of whitelisted IPs.
+    Unified packet filter that combines whitelist, blacklist (including dynamic
+    Azure/Rockstar ranges), and optional Lock state.
     """
 
     def __init__(
         self,
-        ips: set[str],
+        locked: bool,
         priority: int,
         connection: PipeConnection,
-        session_info: Optional[SessionInfo] = None,
-        debug: bool = False,
-    ):
-        super().__init__(ips, priority, connection, session_info, debug)
-
-    def is_packet_allowed(self, packet: pydivert.Packet) -> bool:
-        ip = packet.ip.src_addr
-        size = len(packet.payload)
-
-        # The "special sauce" for the new filtering logic. We're using payload sizes to guess if the packet
-        # has a behaviour we want to allow through.
-        if ip in self.ips or size in HEARTBEAT_SIZES:
-            return True
-
-        wrapper = 0 if size < 5 else int.from_bytes(packet.raw[28:30], "big")
-        magic_byte = packet.payload[4]
-
-        if size == wrapper:
-            offset = packet.payload[2] ^ magic_byte
-            code = 0
-            alt = 0
-            if offset == 17 and size >= 27:
-                code = int.from_bytes(packet.payload[25:27], "big")
-                alt = packet.payload[24]
-            elif offset == 49 and size >= 91:
-                code = int.from_bytes(packet.payload[89:91], "big")
-
-            magic = 0 if size < 5 else int.from_bytes([magic_byte, magic_byte], "big")
-            if (
-                code ^ magic in DTLs
-                or alt ^ magic_byte in KNOWNS
-                or code ^ magic < 0x10
-            ):
-                return True
-
-        return False
-
-
-class BlacklistSession(AbstractPacketFilter):
-    """
-    Packet filter that will block packets from with source ip present on ips list
-    """
-
-    def __init__(
-        self,
-        ips: set[str],
-        priority: int,
-        connection: PipeConnection,
-        blocks: Optional[set[CIDR_BLOCK]] = None,
+        whitelist_ips: set[str],
+        whitelist_blocks: set[CIDR_BLOCK],
+        blacklist_ips: set[str],
+        blacklist_blocks: set[CIDR_BLOCK],
         known_allowed: Optional[set[str]] = None,
         session_info: Optional[SessionInfo] = None,
         debug: bool = False,
     ) -> None:
-        super().__init__(ips, priority, connection, session_info, debug)
+        super().__init__(whitelist_ips, priority, connection, session_info, debug)
+        self.locked = locked
+        self.whitelist_ips = whitelist_ips
+        self.whitelist_blocks = whitelist_blocks
+        self.blacklist_ips = blacklist_ips
+        self.blacklist_blocks = blacklist_blocks
+        self.known_allowed = known_allowed if known_allowed is not None else set()
 
-        if blocks is None:
-            blocks = set()
-        if known_allowed is None:
-            known_allowed = set()
+    def _is_lan_ip(self, ip: str) -> bool:
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            first, second = int(parts[0]), int(parts[1])
+        except ValueError:
+            return False
+        return (
+            first == 10
+            or (first == 192 and second == 168)
+            or (first == 172 and 16 <= second <= 31)
+        )
 
-        self.ip_blocks = blocks  # set of CIDR blocks
-        self.known_allowed = known_allowed  # IPs which are known to not be in blocks
-
-    def is_packet_allowed(self, packet: pydivert.Packet) -> bool:
+    def is_packet_allowed(self, packet: pydivert.Packet) -> tuple[bool, str]:
         ip = packet.ip.src_addr
         size = len(packet.payload)
 
-        if ip in self.known_allowed or size in KNOWN_SIZES:
-            return True
-        elif ip not in self.ips:
-            # If it's not directly blacklisted it might be in a blacklisted range
-            if ip_in_cidr_block_set(ip, self.ip_blocks):
-                # It was in a blacklisted range, add this to the standard list
-                self.ips.add(ip)
-                return False
-            else:
-                # If not then it's definitely allowed, remember this for next time
-                self.known_allowed.add(ip)
-                return True
-        return False
+        # 0. Fast path for known allowed IPs
+        if ip in self.known_allowed:
+            return True, "Known Allowed IP"
 
+        # 1. Check blacklist (always block)
+        if ip in self.blacklist_ips:
+            return False, "Blacklisted IP"
 
-class LockedSession(AbstractPacketFilter):
-    """
-    Packet filter to block all join request packets and i.e. any new attempts to connect to your client.
-    Any existing connections do not get blocked. Locked is the only way to firewall a session off if one
-    or more of those players are not directly routed to the Session Host (i.e. you).
-    """
+        matched_blacklist_cidr = find_matching_cidr_block(ip, self.blacklist_blocks)
+        if matched_blacklist_cidr is not None:
+            self.blacklist_ips.add(ip)  # Cache for future lookups
+            return False, f"Blacklisted Range ({matched_blacklist_cidr})"
 
-    def __init__(
-        self,
-        priority: int,
-        connection: PipeConnection,
-        session_info: Optional[SessionInfo] = None,
-        debug: bool = False,
-    ):
-        super().__init__(set(), priority, connection, session_info, debug)
+        # 2. Check whitelist (always allow, even when locked)
+        if ip in self.whitelist_ips:
+            return True, "Whitelisted IP"
 
-    def is_packet_allowed(self, packet: pydivert.Packet) -> bool:
-        size = len(packet.payload)
+        if ip_in_cidr_block_set(ip, self.whitelist_blocks):
+            return True, "Whitelisted Range"
 
-        # No new matchmaking requests allowed.
-        # Seems a bit overkill (and perhaps reckless) to always block these payload sizes but my packet
-        # captures show that these payload sizes don't occur in any regular game traffic so...
-        return size not in MATCHMAKING_SIZES
+        # 3. Always allow LAN and heartbeats
+        if self._is_lan_ip(ip):
+            return True, "LAN"
+
+        if size in HEARTBEAT_SIZES:
+            return True, "Heartbeat"
+
+        # 4. Lock state logic
+        if self.locked:
+            if size in MATCHMAKING_SIZES:
+                return False, "Locked - Unknown Matchmaking Blocked"
+            self.known_allowed.add(ip)
+            return True, "Locked - Unknown Non-Matchmaking Allowed"
+
+        # 5. Unlocked state: allow everyone else
+        self.known_allowed.add(ip)
+        return True, "Allowed"
 
 
 # TODO: Convert this to AbstractPacketFilter
@@ -308,6 +383,7 @@ class DebugSession:
 
     def stop(self) -> None:
         self.process.terminate()
+        self.process.join()
 
     def run(self) -> None:
         debug_logger.debug("Started debugging")
@@ -352,89 +428,3 @@ class DebugSession:
                     dst,
                     packet.dst_port,
                 )
-
-
-# Okay, so there's a couple of changes that need to be done to fix auto-whitelisting.
-
-# The main flaw is that this IPCollector has a chance of collecting IPs that are responsible for R* Services
-# (and can i.e. be used for tunnelling).
-# When you're in a session, a R* Service will "ping" your session / check for a "heartbeat". If your session is pinged
-# while the IPCollector is running, the IPCollector will add the source of that ping to the whitelist.
-
-# This wasn't a problem before Online 1.54 because these services weren't used for tunneling connections. But, now, if
-# a player joining the session cannot connect to you directly, these IPs can be used for R* Services *can* be used for
-# tunnelled session traffic. As the IPCollector has added these R* Service IPs to the whitelist, tunnelled connections are
-# now also whitelisted, which obviously breaks session security.
-
-# The first fix is to adjust the rules / "reasons" the IPCollector may add an IP to the auto-whitelist.
-# Because the new filters only filter inbound traffic, I have decided to only add an IP to the auto-whitelist if:
-#   - the packet is inbound
-#   - the packet does not contain a payload size equal to a heartbeat
-#   - the packet does not contain a payload size equal to a matchmaking request
-
-# There is one more check we need to perform, which will be done *after* the IP collector has run, mainly due to the extra
-# complexity required to perform it.
-# My research indicates that R* uses Microsoft Azure Cloud for most of their R* Services. Microsoft frequently publishes
-# their IP ranges used for cloud activity. As a last safe-guarding step, we should acquire these IP ranges and ensure that
-# collected IPs do not correspond to any cloud traffic.
-
-# If the new version of the IPCollector has saved an IP address used by Azure, this almost certainly guarantees that
-# someone is already being tunnelled through a R* Service (as using Azure for VPNs is incredibly rare), and we will need
-# to display a warning that these players must be dropped from the session for security to remain.
-
-# There are some extra heuristics we could also add to the IPCollector, such as actually noting any IPs that might be
-# R* Services by checking their payload sizes, running the auto-whitelist service for a whole 60 seconds (!), and also
-# only adding IPs which have sent a certain threshold of packets during the IP collection phase. (When in a session, you
-# send a *significant* amount of packets between clients, compared to only a handful of packets for other misc. activity.)
-
-
-class IPCollector:
-    """
-    Thread to store all the ip addresses matching the packet filter
-    """
-
-    def __init__(self, priority: int, packet_count_min_threshold: int = 1):
-        self.priority = priority
-        self.process = Process(target=self.run, daemon=True)
-        self.ips: ListProxy[str] = Manager().list()
-        self.seen_ips: DictProxy[
-            str, int
-        ] = Manager().dict()  # key is IP address, value is packets seen
-        self.min_packets = packet_count_min_threshold  # minimum amount of packets required to be seen to be added
-
-    def add_seen_ip(self, ip: str) -> None:
-        """
-        Keeps a "counter" of how many packets have been seen from this IP.
-        """
-        self.seen_ips[ip] = self.seen_ips.get(ip, 0) + 1
-
-    def save_ips(self) -> None:
-        """
-        Saves any IP that has been seen at least self.min_packets times.
-        """
-        for ip in self.seen_ips:
-            if self.seen_ips[ip] >= self.min_packets:
-                self.ips.append(ip)
-
-    def start(self) -> None:
-        self.process.start()
-        logger.info("Dispatched IPCollector process")
-
-    def stop(self) -> None:
-        self.process.terminate()
-        logger.info("Terminated IPCollector process")
-        self.save_ips()
-        logger.info("Collected a total of %d IPs", len(self.ips))
-
-    def run(self) -> None:
-        # TODO: We could also actually check to see *when* the last packet was seen from that IP.
-        with contextlib.suppress(KeyboardInterrupt):
-            with pydivert.WinDivert(
-                PACKET_FILTER, priority=self.priority, flags=pydivert.Flag.SNIFF
-            ) as w:
-                for packet in w:
-                    size = len(packet.payload)
-
-                    if packet.is_inbound and size not in KNOWN_SIZES:
-                        src = packet.ip.src_addr
-                        self.add_seen_ip(src)

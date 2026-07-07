@@ -18,9 +18,9 @@ message explaining this).
 MAIN WINDOW
 -----------
 At the top: a colored indicator and a text status:
-  * Green / "Open"            — no filter active, everyone connects normally.
+  * Green / "Open"            — session open for everyone except players in your blacklist (runs BlacklistSession in the background).
   * Red / "LOCKED"            — a Locked session is active (blocks new joins).
-  * "Active: <session type>"  — some other mode is currently running (see below).
+  * "Active: <session type>"  — some other mode is currently running (e.g. Solo).
 
 The app's taskbar icon also changes color (green/red) in sync with this
 status.
@@ -28,9 +28,7 @@ status.
 "STOP SESSION" BUTTON
 ----------------------
 A separate button specifically for TURNING OFF whatever mode is currently
-active. It's not the same button you used to start it — it only becomes
-enabled (not greyed out) when something is actually running. Clicking it
-disables the current filter and returns to "Open".
+active. Clicking it disables the active mode and returns to the default "Open" background blacklist filter state.
 
 SESSION MODE BUTTONS (each has an indicator dot on the left)
 --------------------------------------------------------------
@@ -89,29 +87,28 @@ with Lock. Pressing F9 again returns you to "Open", not back to whatever
 was running before.
 
 CONNECTION LOG (WHO JOINED, AND WHEN)
+CONNECTION LOG & INTERACTIVE PANEL
 ----------------------------------------
-G-Lock ALWAYS keeps a passive log (even while status is "Open", with no
-active mode) of who sent something that looks like a join attempt, and when.
-This doesn't affect any other mode and doesn't block anything by itself —
-it only records.
+G-Lock keeps a passive log of all connections and displays it in real-time in the right panel of the main window.
 
-Files live in a "logs" folder next to the app, one file per day:
-  logs/connections_2026-07-06.log
-Line format: [date and time] IP address.
-Only the 10 most recent days are kept — older files get deleted
-automatically. If it turns out a cheater got in after a session, open the
-log for that day and check which IPs showed up around the time it
-happened. You can add the IP you find straight to the Blacklist (see below)
-or block it more strictly via Windows Firewall if needed.
+The panel features intuitive color coding:
+  * Green — friends joining directly from residential IPs.
+  * Blue  — connections passing through Rockstar/Azure relays (typically modders, hidden IPs, or closed NAT).
+  * Red   — blocked packet attempts.
+  * Grey  — service/passive packets.
+
+Quick log actions (right-click a row in the log table):
+  * "Copy IP" — copy the player's IP address.
+  * "Add to Whitelist" / "Add to Blacklist" — quickly add the IP to your lists with a name. The protection rules will reload automatically on the fly without restarting the program.
+
+Logs are saved as UTF-8 files in the "logs" folder next to the app, keeping only the 10 most recent days.
 
 EDIT LISTS (WHITELIST / BLACKLIST)
 ------------------------------------
-The "Edit lists" button opens a separate window with two tabs (Whitelist /
-Blacklist). There you can:
-  * Add    — a new entry (name + IP address).
-  * Edit   — modify the selected entry.
-  * Delete — remove the selected entry.
-The app validates IP address format and won't let you add a duplicate.
+The "Edit lists" button opens a window with Whitelist / Blacklist tabs.
+You can manage entries manually (Add, Edit, Delete).
+G-Lock supports adding both individual IPs and entire subnet ranges in CIDR format (e.g., 52.139.169.0/24), which is convenient for blocking whole Rockstar/Azure relay ranges.
+Config files are stored in UTF-8, allowing names to contain Cyrillic/non-English characters.
 
 LANGUAGE SWITCHER
 ------------------

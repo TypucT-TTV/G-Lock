@@ -1,10 +1,10 @@
 import contextlib
 import logging
+import multiprocessing
 import time
-from datetime import date
 from multiprocessing import Process
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Any
 
 import pydivert
 
@@ -23,6 +23,10 @@ REJOIN_COOLDOWN_SECONDS = 30
 # managed by Context at all, it runs for G-Lock's entire lifetime
 # regardless of which (if any) session filter is currently active.
 LOGGER_PRIORITY = -100
+
+# Shared Queue and Event at module level (instantiated in parent process, passed to child processes)
+_log_queue: Any = multiprocessing.Queue()
+_filter_active_event: Any = multiprocessing.Event()
 
 
 def _prune_old_logs() -> None:
@@ -44,18 +48,17 @@ class ConnectionLogger:
 
     def __init__(self, priority: int = LOGGER_PRIORITY):
         self.priority = priority
-        self.process = Process(target=self.run, daemon=True)
+        self.process = Process(
+            target=self.run,
+            args=(_log_queue, _filter_active_event),
+            daemon=True,
+        )
 
     def start(self) -> None:
         self.process.start()
         logger.info("Dispatched ConnectionLogger process")
 
-    def run(self) -> None:
-        LOG_DIR.mkdir(exist_ok=True)
-        _prune_old_logs()
-
-        current_date: Optional[date] = None
-        handle: Optional[TextIO] = None
+    def run(self, log_queue: Any, filter_active_event: Any) -> None:
         last_seen: dict[str, float] = {}
 
         with contextlib.suppress(KeyboardInterrupt):
@@ -63,26 +66,32 @@ class ConnectionLogger:
                 PACKET_FILTER, priority=self.priority, flags=pydivert.Flag.SNIFF
             ) as w:
                 for packet in w:
-                    if not packet.is_inbound or len(packet.payload) not in MATCHMAKING_SIZES:
+                    # If a filter is active, let the filter handle logging
+                    if filter_active_event.is_set():
+                        continue
+
+                    if (
+                        not packet.is_inbound
+                        or len(packet.payload) not in MATCHMAKING_SIZES
+                    ):
                         continue
 
                     ip = packet.ip.src_addr
                     now = time.monotonic()
-                    if ip in last_seen and now - last_seen[ip] < REJOIN_COOLDOWN_SECONDS:
+                    if (
+                        ip in last_seen
+                        and now - last_seen[ip] < REJOIN_COOLDOWN_SECONDS
+                    ):
                         continue
                     last_seen[ip] = now
 
-                    today = date.today()
-                    if today != current_date:
-                        if handle is not None:
-                            handle.close()
-                        current_date = today
-                        handle = (LOG_DIR / f"connections_{today.isoformat()}.log").open(
-                            "a", encoding="utf-8"
-                        )
-                        _prune_old_logs()
-
-                    assert handle is not None  # always set by the block above
                     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                    handle.write(f"[{timestamp}] {ip}\n")
-                    handle.flush()
+                    log_queue.put(
+                        (
+                            timestamp,
+                            ip,
+                            "ALLOW",
+                            len(packet.payload),
+                            "Sniffed",
+                        )
+                    )

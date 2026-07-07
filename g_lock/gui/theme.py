@@ -84,7 +84,6 @@ def rounded_rect_points(
     return points
 
 
-
 def apply_ttk_style() -> None:
     """
     Dark-themes the handful of ttk widgets NeonButton doesn't replace

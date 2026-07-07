@@ -76,19 +76,19 @@ def open_settings_editor(root: tk.Tk) -> None:
     def on_key_press(event: tk.Event[tk.Misc]) -> None:
         if not is_capturing[0]:
             return
-        
+
         vk = event.keycode
         name = event.keysym
-        
+
         # Format key name
         if name in _KEY_DISPLAY_NAMES:
             name = _KEY_DISPLAY_NAMES[name]
         elif len(name) == 1:
             name = name.upper()
-        
+
         new_vk[0] = vk
         new_name[0] = name
-        
+
         key_label.config(text=t("settings_current_key", hotkey=name))
         is_capturing[0] = False
         change_btn.set_text(t("settings_btn_change_key"))
@@ -173,7 +173,7 @@ def open_settings_editor(root: tk.Tk) -> None:
             anchor="w",
         )
         freq_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        
+
         dur_label = tk.Label(
             group,
             text=t("settings_dur", value=default_dur),
@@ -243,14 +243,22 @@ def open_settings_editor(root: tk.Tk) -> None:
         test_btn = widgets.NeonButton(
             group,
             t("settings_btn_test"),
-            command=lambda: play_beep(int(freq_scale.get()), int(dur_scale.get()), int(vol_scale.get())),
+            command=lambda: play_beep(
+                int(freq_scale.get()), int(dur_scale.get()), int(vol_scale.get())
+            ),
         )
         test_btn.grid(row=0, column=2, rowspan=3, padx=10, pady=2)
 
         return group, freq_scale, dur_scale, vol_scale, test_btn
 
     # Group: On Lock
-    lock_grp, lock_freq_scale, lock_dur_scale, lock_vol_scale, lock_test_btn = build_sound_group(
+    (
+        lock_grp,
+        lock_freq_scale,
+        lock_dur_scale,
+        lock_vol_scale,
+        lock_test_btn,
+    ) = build_sound_group(
         ctrls_frame,
         t("settings_sound_lock"),
         config.get("sound_lock_freq", 900),
@@ -260,7 +268,13 @@ def open_settings_editor(root: tk.Tk) -> None:
     lock_grp.pack(fill="x", pady=5)
 
     # Group: On Unlock
-    unlock_grp, unlock_freq_scale, unlock_dur_scale, unlock_vol_scale, unlock_test_btn = build_sound_group(
+    (
+        unlock_grp,
+        unlock_freq_scale,
+        unlock_dur_scale,
+        unlock_vol_scale,
+        unlock_test_btn,
+    ) = build_sound_group(
         ctrls_frame,
         t("settings_sound_unlock"),
         config.get("sound_unlock_freq", 400),
@@ -271,7 +285,9 @@ def open_settings_editor(root: tk.Tk) -> None:
 
     # Enable/disable sub-controls when sound checkbutton is toggled
     def toggle_sound_controls() -> None:
-        state: Literal["normal", "disabled"] = "normal" if sound_enabled_var.get() else "disabled"
+        state: Literal["normal", "disabled"] = (
+            "normal" if sound_enabled_var.get() else "disabled"
+        )
         for scale in (
             lock_freq_scale,
             lock_dur_scale,
@@ -315,5 +331,6 @@ def open_settings_editor(root: tk.Tk) -> None:
     ).pack(side="left", padx=10)
 
     from gui.dialogs import center_toplevel
+
     center_toplevel(top, root)
     top.wait_window(top)

@@ -37,6 +37,7 @@ def open_list_editor(root: tk.Tk) -> None:
     _ListTab(blacklist_frame, top, Blacklist)
 
     from gui.dialogs import center_toplevel
+
     center_toplevel(top, root)
 
 
@@ -67,7 +68,10 @@ class _ListTab:
             side="left", padx=4
         )
         widgets.NeonButton(
-            button_row, t("btn_delete"), command=self._on_delete, accent=theme.NEON_MAGENTA
+            button_row,
+            t("btn_delete"),
+            command=self._on_delete,
+            accent=theme.NEON_MAGENTA,
         ).pack(side="left", padx=4)
 
         self.refresh()
@@ -125,16 +129,16 @@ class _ListTab:
             "highlightcolor": theme.NEON_CYAN,
         }
 
-        tk.Label(
-            form, text=t("col_name"), bg=theme.BG, fg=theme.TEXT
-        ).grid(row=0, column=0, sticky="w", padx=10, pady=(14, 2))
+        tk.Label(form, text=t("col_name"), bg=theme.BG, fg=theme.TEXT).grid(
+            row=0, column=0, sticky="w", padx=10, pady=(14, 2)
+        )
         name_entry = tk.Entry(form, width=28, **entry_kwargs)  # type: ignore[arg-type]
         name_entry.insert(0, initial_name)
         name_entry.grid(row=1, column=0, padx=10, pady=(0, 10), ipady=3)
 
-        tk.Label(
-            form, text=t("col_ip"), bg=theme.BG, fg=theme.TEXT
-        ).grid(row=2, column=0, sticky="w", padx=10)
+        tk.Label(form, text=t("col_ip"), bg=theme.BG, fg=theme.TEXT).grid(
+            row=2, column=0, sticky="w", padx=10
+        )
         ip_entry = tk.Entry(form, width=28, **entry_kwargs)  # type: ignore[arg-type]
         ip_entry.insert(0, initial_ip)
         ip_entry.grid(row=3, column=0, padx=10, pady=(0, 10), ipady=3)
@@ -183,5 +187,6 @@ class _ListTab:
         ).pack(side="left", padx=6)
 
         from gui.dialogs import center_toplevel
+
         center_toplevel(form, self.root)
         form.grab_set()

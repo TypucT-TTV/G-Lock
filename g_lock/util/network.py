@@ -1,6 +1,6 @@
 import contextlib
 import socket
-from typing import cast
+from typing import Optional, cast
 
 import requests
 
@@ -80,3 +80,17 @@ def construct_cidr_block_set(ips_in_cidr: list[str]) -> set[CIDR_BLOCK]:
             # [0] is IP as integer, [1] is subnet mask in /xy notation (only xy)
             ip_set.add(cidr_to_tuple(ip_cidr))
     return ip_set
+
+
+def int_to_ip(ip_int: int) -> str:
+    return f"{(ip_int >> 24) & 255}.{(ip_int >> 16) & 255}.{(ip_int >> 8) & 255}.{ip_int & 255}"
+
+
+def find_matching_cidr_block(ip: str, cidr_block_set: set[CIDR_BLOCK]) -> Optional[str]:
+    ip_int = calculate_ip_to_int(ip)
+    for suffix in range(len(CIDR_MASKS)):
+        cidr_key = (ip_int & CIDR_MASKS[suffix], suffix)
+        if cidr_key in cidr_block_set:
+            base_ip = int_to_ip(cidr_key[0])
+            return f"{base_ip}/{suffix}"
+    return None

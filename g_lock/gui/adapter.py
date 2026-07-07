@@ -23,10 +23,14 @@ class UIAdapter(ABC):
     """
 
     @abstractmethod
-    def confirm(self, title: str, message: str) -> bool: ...
+    def confirm(self, title: str, message: str) -> bool:
+        ...
 
     @abstractmethod
-    def select_multiple(self, title: str, message: str, choices: list[str]) -> list[str]: ...
+    def select_multiple(
+        self, title: str, message: str, choices: list[str]
+    ) -> list[str]:
+        ...
 
     @abstractmethod
     def run_with_progress(
@@ -34,7 +38,8 @@ class UIAdapter(ABC):
         title: str,
         total: int,
         work: Callable[[Callable[[int], None], threading.Event], T],
-    ) -> T: ...
+    ) -> T:
+        ...
 
 
 class TkUIAdapter(UIAdapter):
@@ -63,7 +68,9 @@ class TkUIAdapter(UIAdapter):
             lambda: dialogs.show_confirm(self.root, title, message)
         )
 
-    def select_multiple(self, title: str, message: str, choices: list[str]) -> list[str]:
+    def select_multiple(
+        self, title: str, message: str, choices: list[str]
+    ) -> list[str]:
         return self._run_on_main_and_wait(
             lambda: dialogs.show_multiselect(self.root, title, message, choices)
         )
@@ -79,7 +86,9 @@ class TkUIAdapter(UIAdapter):
         created = threading.Event()
 
         def _open() -> None:
-            dialog_box.append(dialogs.ProgressDialog(self.root, title, total, cancel_event))
+            dialog_box.append(
+                dialogs.ProgressDialog(self.root, title, total, cancel_event)
+            )
             created.set()
 
         self.main_queue.put(_open)

@@ -82,6 +82,7 @@ def _main() -> None:
     ConnectionLogger().start()
 
     register_hotkeys(Menu)
+    Menu.launch_default_blacklist_session()
     window = MainWindow(Menu, version=__version__)
     window.run()
 

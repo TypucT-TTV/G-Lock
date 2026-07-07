@@ -26,6 +26,8 @@ class ConfigDataType(TypedDict, total=False):
     window_w: int
     window_h: int
     zoom_factor: float
+    verbose_logging_enabled: bool
+    verbose_flood_threshold: int
 
 
 class ConfigData(metaclass=Singleton):
@@ -37,7 +39,7 @@ class ConfigData(metaclass=Singleton):
             # Migrate older configs
             updated = False
             defaults = {
-                "hotkey_vk": 0x78,       # VK_F9
+                "hotkey_vk": 0x78,  # VK_F9
                 "hotkey_name": "F9",
                 "sound_enabled": True,
                 "sound_lock_freq": 900,
@@ -47,6 +49,8 @@ class ConfigData(metaclass=Singleton):
                 "sound_unlock_dur": 200,
                 "sound_unlock_vol": 80,
                 "zoom_factor": 1.0,
+                "verbose_logging_enabled": True,
+                "verbose_flood_threshold": 50,
             }
             for k, v in defaults.items():
                 if k not in self.data:
@@ -59,7 +63,7 @@ class ConfigData(metaclass=Singleton):
                 "blacklist": {},
                 "whitelist": {},
                 "language": "ru",
-                "hotkey_vk": 0x78,       # VK_F9
+                "hotkey_vk": 0x78,  # VK_F9
                 "hotkey_name": "F9",
                 "sound_enabled": True,
                 "sound_lock_freq": 900,
@@ -69,17 +73,18 @@ class ConfigData(metaclass=Singleton):
                 "sound_unlock_dur": 200,
                 "sound_unlock_vol": 80,
                 "zoom_factor": 1.0,
+                "verbose_logging_enabled": True,
+                "verbose_flood_threshold": 50,
             }
             self.save()
 
-
     def load(self) -> None:
-        with self.data_file.open("r") as file:
+        with self.data_file.open("r", encoding="utf-8") as file:
             self.data = json.load(file)
 
     def save(self) -> None:
-        with self.data_file.open("w") as file:
-            json.dump(self.data, file, indent=4)
+        with self.data_file.open("w", encoding="utf-8") as file:
+            json.dump(self.data, file, indent=4, ensure_ascii=False)
 
     def get(self, key: str, default: Any = None) -> Any:
         """

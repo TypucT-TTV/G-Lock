@@ -45,8 +45,13 @@ def show_confirm(root: tk.Tk, title: str, message: str) -> bool:
     result = {"value": False}
 
     body = tk.Message(
-        top, text=message, width=420, bg=theme.BG, fg=theme.TEXT,
-        justify="left", font=theme.FONT_UI,
+        top,
+        text=message,
+        width=420,
+        bg=theme.BG,
+        fg=theme.TEXT,
+        justify="left",
+        font=theme.FONT_UI,
     )
     body.pack(padx=20, pady=20)
 
@@ -61,7 +66,9 @@ def show_confirm(root: tk.Tk, title: str, message: str) -> bool:
         button_row, t("btn_yes_start"), command=lambda: _answer(True)
     ).pack(side="left", padx=6)
     widgets.NeonButton(
-        button_row, t("btn_no_back"), command=lambda: _answer(False),
+        button_row,
+        t("btn_no_back"),
+        command=lambda: _answer(False),
         accent=theme.NEON_MAGENTA,
     ).pack(side="left", padx=6)
 
@@ -85,8 +92,13 @@ def show_multiselect(
     result: dict[str, list[str]] = {"value": []}
 
     body = tk.Message(
-        top, text=message, width=480, bg=theme.BG, fg=theme.TEXT,
-        justify="left", font=theme.FONT_UI,
+        top,
+        text=message,
+        width=480,
+        bg=theme.BG,
+        fg=theme.TEXT,
+        justify="left",
+        font=theme.FONT_UI,
     )
     body.pack(padx=20, pady=(20, 10))
 
@@ -94,13 +106,17 @@ def show_multiselect(
     list_frame.pack(padx=20, fill="both", expand=True)
 
     canvas = tk.Canvas(
-        list_frame, bg=theme.PANEL, highlightthickness=1,
+        list_frame,
+        bg=theme.PANEL,
+        highlightthickness=1,
         highlightbackground=theme.BORDER_DIM,
         height=min(300, 24 * max(len(choices), 1)),
     )
     scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
     inner = tk.Frame(canvas, bg=theme.PANEL)
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    inner.bind(
+        "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
     canvas.create_window((0, 0), window=inner, anchor="nw")
     canvas.configure(yscrollcommand=scrollbar.set)
     canvas.pack(side="left", fill="both", expand=True)
@@ -135,7 +151,9 @@ def show_multiselect(
         side="left", padx=6
     )
     widgets.NeonButton(
-        button_row, t("btn_cancel"), command=lambda: _submit(True),
+        button_row,
+        t("btn_cancel"),
+        command=lambda: _submit(True),
         accent=theme.NEON_MAGENTA,
     ).pack(side="left", padx=6)
 
@@ -159,7 +177,9 @@ class ProgressDialog:
     thread (they just push onto a queue.Queue).
     """
 
-    def __init__(self, root: tk.Tk, title: str, total: int, cancel_event: threading.Event):
+    def __init__(
+        self, root: tk.Tk, title: str, total: int, cancel_event: threading.Event
+    ):
         self.total = total
         self.cancel_event = cancel_event
         self._queue: "queue.Queue[tuple[str, Optional[int]]]" = queue.Queue()
@@ -170,7 +190,11 @@ class ProgressDialog:
         self.top.protocol("WM_DELETE_WINDOW", self.cancel_event.set)
 
         self.status_label = tk.Label(
-            self.top, text=f"0 / {total}", bg=theme.BG, fg=theme.TEXT, font=theme.FONT_UI
+            self.top,
+            text=f"0 / {total}",
+            bg=theme.BG,
+            fg=theme.TEXT,
+            font=theme.FONT_UI,
         )
         self.status_label.pack(padx=24, pady=(20, 6))
 
@@ -180,7 +204,9 @@ class ProgressDialog:
         self.bar.pack(padx=24, pady=6)
 
         widgets.NeonButton(
-            self.top, t("btn_cancel"), command=self.cancel_event.set,
+            self.top,
+            t("btn_cancel"),
+            command=self.cancel_event.set,
             accent=theme.NEON_MAGENTA,
         ).pack(pady=(6, 20))
 

@@ -14,7 +14,6 @@ pydivert = "2.1.0"
 questionary = "^1.10.0"
 tqdm = "^4.64.1"
 requests = "^2.31.0"
-prsw = "^0.3.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.7.0"
@@ -45,7 +44,7 @@ exclude = ["speed_tests/", "tests/", "build.py"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["pydivert", "prsw"]
+module = ["pydivert"]
 ignore_missing_imports = true
 
 [build-system]

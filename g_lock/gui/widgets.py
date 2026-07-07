@@ -42,15 +42,22 @@ def draw_button_shape(
     else:
         fill, border, text_color = theme.PANEL, theme.NEON_CYAN_DIM, theme.TEXT
 
-    points = theme.rounded_rect_points(x + 1.5, y + 1.5, x + w - 1.5, y + h - 1.5, radius=9)
+    points = theme.rounded_rect_points(
+        x + 1.5, y + 1.5, x + w - 1.5, y + h - 1.5, radius=9
+    )
     # stipple dithers the fill (never the outline) against whatever sits
     # behind it on the SAME canvas — this only looks translucent when the
     # button is drawn on the same pixel grid as whatever's meant to show
     # through (see CanvasButton); a separate opaque widget has nothing
     # interesting behind it to dither against.
     canvas.create_polygon(
-        points, smooth=False, fill=fill, outline=border, width=1.6,
-        stipple="gray50", tags=tag,
+        points,
+        smooth=False,
+        fill=fill,
+        outline=border,
+        width=1.6,
+        stipple="gray50",
+        tags=tag,
     )
 
     text_x = x + w / 2
@@ -59,8 +66,13 @@ def draw_button_shape(
         r = 5.0
         cy = y + h / 2
         canvas.create_oval(
-            dot_cx - r, cy - r, dot_cx + r, cy + r,
-            fill=status_color, outline="", tags=tag,
+            dot_cx - r,
+            cy - r,
+            dot_cx + r,
+            cy + r,
+            fill=status_color,
+            outline="",
+            tags=tag,
         )
         text_x = (dot_cx + r + 8 + x + w) / 2
 
@@ -142,10 +154,19 @@ class NeonButton(tk.Canvas):
     def _draw(self) -> None:
         status_color = self._status_color if self._show_status_dot else None
         draw_button_shape(
-            self, 0, 0, self._width, self._height,
-            self._text, self._font, self._accent,
-            self._state, self._hovered, self._pressed,
-            status_color, "btn",
+            self,
+            0,
+            0,
+            self._width,
+            self._height,
+            self._text,
+            self._font,
+            self._accent,
+            self._state,
+            self._hovered,
+            self._pressed,
+            status_color,
+            "btn",
         )
 
     def _on_enter(self, _event: object) -> None:
@@ -240,8 +261,13 @@ class CanvasButton:
             x + 1.5, y + 1.5, x + width - 1.5, y + height - 1.5, radius=9
         )
         self._polygon_id = canvas.create_polygon(
-            points, smooth=False, fill=theme.PANEL, outline=theme.NEON_CYAN_DIM,
-            width=1.6, stipple="gray50", tags=self._tag,
+            points,
+            smooth=False,
+            fill=theme.PANEL,
+            outline=theme.NEON_CYAN_DIM,
+            width=1.6,
+            stipple="gray50",
+            tags=self._tag,
         )
 
         text_x = x + width / 2
@@ -251,13 +277,22 @@ class CanvasButton:
             r = 5.0
             cy = y + height / 2
             self._dot_id = canvas.create_oval(
-                dot_cx - r, cy - r, dot_cx + r, cy + r,
-                fill=self._status_color, outline="", tags=self._tag,
+                dot_cx - r,
+                cy - r,
+                dot_cx + r,
+                cy + r,
+                fill=self._status_color,
+                outline="",
+                tags=self._tag,
             )
             text_x = (dot_cx + r + 8 + x + width) / 2
 
         self._text_id = canvas.create_text(
-            text_x, y + height / 2, text=text, fill=theme.TEXT, font=font,
+            text_x,
+            y + height / 2,
+            text=text,
+            fill=theme.TEXT,
+            font=font,
             tags=self._tag,
         )
 
@@ -270,7 +305,11 @@ class CanvasButton:
 
     def _refresh_colors(self) -> None:
         if self._state == "disabled":
-            fill, border, text_color = theme.PANEL, theme.TEXT_DISABLED, theme.TEXT_DISABLED
+            fill, border, text_color = (
+                theme.PANEL,
+                theme.TEXT_DISABLED,
+                theme.TEXT_DISABLED,
+            )
         elif self._pressed:
             fill, border, text_color = theme.PANEL_PRESSED, self._accent, theme.TEXT
         elif self._hovered:
@@ -317,6 +356,16 @@ class CanvasButton:
             self._status_color = color
             self._refresh_colors()
 
+    def set_text(self, text: str) -> None:
+        if text != self._text:
+            self._text = text
+            self.canvas.itemconfigure(self._text_id, text=text)
+
+    def set_accent(self, accent: str) -> None:
+        if accent != self._accent:
+            self._accent = accent
+            self._refresh_colors()
+
 
 def draw_geometric_background(canvas: tk.Canvas, width: int, height: int) -> None:
     """
@@ -334,9 +383,7 @@ def draw_geometric_background(canvas: tk.Canvas, width: int, height: int) -> Non
             angle = i * 60
             pts.append(cx + r * math.cos(math.radians(angle)))
             pts.append(cy + r * math.sin(math.radians(angle)))
-        canvas.create_polygon(
-            pts, outline=color, fill="", width=1, tags="bg_shape"
-        )
+        canvas.create_polygon(pts, outline=color, fill="", width=1, tags="bg_shape")
 
     # Scattered hexagon outlines across the whole canvas, not just edges —
     # there's now a wide enough margin around the content for these to read
@@ -375,8 +422,13 @@ def draw_geometric_background(canvas: tk.Canvas, width: int, height: int) -> Non
         }
         cx, cy = corner_positions[ring_corner]
         canvas.create_oval(
-            cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r,
-            outline=theme.NEON_CYAN_DIM, width=1, tags="bg_shape",
+            cx - ring_r,
+            cy - ring_r,
+            cx + ring_r,
+            cy + ring_r,
+            outline=theme.NEON_CYAN_DIM,
+            width=1,
+            tags="bg_shape",
         )
 
     canvas.tag_lower("bg_shape")

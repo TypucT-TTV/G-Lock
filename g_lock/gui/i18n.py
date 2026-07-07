@@ -27,6 +27,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_donate": "Thank ТурисТ",
         "menu_quit": "Quit",
         "btn_stop_session": "Stop Session",
+        "btn_lock_session": "Lock Session",
+        "btn_unlock_session": "Unlock Session",
         "settings_title": "G-Lock Settings",
         "settings_hotkey_sec": "Global Hotkey",
         "settings_sound_sec": "Sound Notifications (Beep)",
@@ -41,6 +43,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_vol": "Volume: {value}%",
         "settings_btn_test": "Test",
         "status_open": "Open",
+        "status_open_blacklist": "Open (Blacklist Active)",
         "status_locked": "LOCKED",
         "status_active": "Active: {name}",
         "name_solo_session": "Solo Session",
@@ -130,6 +133,15 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "error_name_duplicate": "Name already in list",
         "error_ip_invalid": "Invalid IP",
         "error_ip_duplicate": "IP already in list",
+        "log_panel_title": "Network Activity",
+        "col_time": "Time",
+        "col_action": "Action",
+        "col_detail": "Details",
+        "log_menu_copy_ip": "Copy IP",
+        "log_menu_add_whitelist": "Add to Whitelist",
+        "log_menu_add_blacklist": "Add to Blacklist",
+        "dialog_enter_name_title": "Enter name",
+        "dialog_enter_name_msg": "Enter name for IP {ip}:",
     },
     LANG_RU: {
         "menu_solo_session": "Solo-сессия",
@@ -145,6 +157,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_donate": "Поблагодарить ТурисТа",
         "menu_quit": "Выход",
         "btn_stop_session": "Остановить сессию",
+        "btn_lock_session": "Запереть сессию",
+        "btn_unlock_session": "Открыть сессию",
         "settings_title": "Настройки G-Lock",
         "settings_hotkey_sec": "Горячая клавиша",
         "settings_sound_sec": "Звуковые сигналы (Beep)",
@@ -159,6 +173,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_vol": "Громкость: {value}%",
         "settings_btn_test": "Тест",
         "status_open": "Открыто",
+        "status_open_blacklist": "Открыто (ЧС активен)",
         "status_locked": "ЗАПЕРТО",
         "status_active": "Активно: {name}",
         "name_solo_session": "Solo-сессия",
@@ -247,6 +262,15 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "error_name_duplicate": "Такое имя уже есть в списке",
         "error_ip_invalid": "Неверный IP-адрес",
         "error_ip_duplicate": "Такой IP уже есть в списке",
+        "log_panel_title": "Сетевая активность",
+        "col_time": "Время",
+        "col_action": "Действие",
+        "col_detail": "Причина",
+        "log_menu_copy_ip": "Копировать IP",
+        "log_menu_add_whitelist": "В белый список (Whitelist)",
+        "log_menu_add_blacklist": "В черный список (Blacklist)",
+        "dialog_enter_name_title": "Добавить имя",
+        "dialog_enter_name_msg": "Введите имя для IP {ip}:",
     },
 }
 
@@ -255,9 +279,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 # instead of showing a raw Python class name.
 FILTER_CLASS_NAME_KEY = {
     "SoloSession": "name_solo_session",
-    "WhitelistSession": "name_whitelisted_session",
-    "BlacklistSession": "name_blacklisted_session",
-    "LockedSession": "name_locked_session",
+    "PrivateSession": "status_open",
 }
 
 _current_language = LANG_RU

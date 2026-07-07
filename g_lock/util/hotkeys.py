@@ -10,7 +10,6 @@ import winsound
 from ctypes import wintypes
 from typing import TYPE_CHECKING
 
-from network.sessions import LockedSession
 from util.crash import crash_report
 
 if TYPE_CHECKING:
@@ -57,12 +56,11 @@ def play_beep(frequency: int, duration_ms: int, volume_percent: int) -> None:
             2,
             16,
             b"data",
-            data_size
+            data_size,
         )
 
         winsound.PlaySound(
-            bytes(header + pcm_data),
-            winsound.SND_MEMORY | winsound.SND_ASYNC
+            bytes(header + pcm_data), winsound.SND_MEMORY | winsound.SND_ASYNC
         )
     except Exception as e:
         debug_logger.debug("Failed to play custom beep: %s", e)
@@ -119,9 +117,12 @@ def _toggle_lock(menu: type[Menu]) -> None:
         config = menu.config
         sound_enabled = config.get("sound_enabled", True)
 
+        from network.verboselog import write_marker
+
         context = menu.context
         if context.is_locked():
-            context.kill_latest_filter()  # открыть сессию
+            menu.launch_private_session(locked=False)  # открыть сессию
+            write_marker("SESSION OPENED (F9 unlock)")
             if sound_enabled:
                 freq = config.get("sound_unlock_freq", 400)
                 dur = config.get("sound_unlock_dur", 200)
@@ -129,11 +130,8 @@ def _toggle_lock(menu: type[Menu]) -> None:
                 play_beep(freq, dur, vol)  # низкий бип = открыто
             print("[HOTKEY] Session UNLOCKED — друзья могут заходить")
         else:
-            session = LockedSession(
-                priority=context.priority, connection=menu.child_conn
-            )
-            context.add_filter(session)
-            context.start_latest_filter()  # запереть (убивает прежний фильтр)
+            menu.launch_private_session(locked=True)  # запереть сессию
+            write_marker("SESSION LOCKED (F9)")
             if sound_enabled:
                 freq = config.get("sound_lock_freq", 900)
                 dur = config.get("sound_lock_dur", 200)
@@ -180,4 +178,3 @@ def register_hotkeys(menu: type[Menu]) -> None:
         f"[HOTKEY] {hotkey_name} — переключение Lock "
         "(высокий бип=заперто, низкий=открыто)"
     )
-

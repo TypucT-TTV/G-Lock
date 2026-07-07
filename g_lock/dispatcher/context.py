@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
 from multiprocessing import Process
 from multiprocessing.connection import PipeConnection
 from typing import Callable, Optional
 
-from network.sessions import AbstractPacketFilter, LockedSession
+from network.sessions import AbstractPacketFilter
 
 debug_logger = logging.getLogger("debugger")
 
@@ -43,6 +45,7 @@ class Context:
 
     def stop(self) -> None:
         self.process.terminate()
+        self.process.join()
 
     def run(self) -> None:
         while True:
@@ -70,9 +73,9 @@ class Context:
                 self.filters.pop(priority_identifier).stop()
 
     def start_latest_filter(self, kill_others: bool = True) -> None:
-        self.filters[list(self.filters)[-1]].start()
         if kill_others:
             self.kill_old_filters()
+        self.filters[list(self.filters)[-1]].start()
         self._notify_change()
 
     def kill_latest_filter(self) -> None:
@@ -92,7 +95,9 @@ class Context:
         if not self.filters:
             return False
         latest = self.filters[list(self.filters)[-1]]
-        return isinstance(latest, LockedSession)
+        from network.sessions import PrivateSession
+
+        return isinstance(latest, PrivateSession) and latest.locked
 
     def active_session_name(self) -> Optional[str]:
         if not self.filters:
