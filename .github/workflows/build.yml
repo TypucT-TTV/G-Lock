@@ -32,7 +32,7 @@ jobs:
           install-only: true
       - name: Build executable
         run: poetry run build
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: G-Lock
           path: dist/G-Lock.exe
