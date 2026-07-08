@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+
 import PyInstaller.__main__
 
 

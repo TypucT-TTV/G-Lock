@@ -6,7 +6,7 @@ import time
 import tkinter as tk
 from datetime import date
 from tkinter import simpledialog, ttk
-from typing import Any, Callable, Optional, TextIO, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional, TextIO
 
 from config.globallist import Blacklist, Whitelist
 from gui import dpi, i18n, icons, list_editor, settings_editor, theme, widgets
@@ -376,18 +376,10 @@ class MainWindow:
             ip_w = saved_widths.get("ip", max(100, round(125 * scale)))
             detail_w = saved_widths.get("detail", max(120, round(170 * scale)))
 
-            self.tree.column(
-                "time", width=time_w, minwidth=50, stretch=False
-            )
-            self.tree.column(
-                "action", width=action_w, minwidth=55, stretch=False
-            )
-            self.tree.column(
-                "ip", width=ip_w, minwidth=90, stretch=True
-            )
-            self.tree.column(
-                "detail", width=detail_w, minwidth=100, stretch=True
-            )
+            self.tree.column("time", width=time_w, minwidth=50, stretch=False)
+            self.tree.column("action", width=action_w, minwidth=55, stretch=False)
+            self.tree.column("ip", width=ip_w, minwidth=90, stretch=True)
+            self.tree.column("detail", width=detail_w, minwidth=100, stretch=True)
 
             self.tree.tag_configure("allow", foreground=theme.SUCCESS)
             self.tree.tag_configure("block", foreground=theme.DANGER)

@@ -4,10 +4,9 @@ import sys
 import traceback
 from multiprocessing import freeze_support
 
+from __version__ import __version__
 from gui.dpi import make_process_dpi_aware
 from util.crash import crash_report
-
-from __version__ import __version__
 
 # Must happen before ANY Tk window is created — including the crash-handler's
 # messagebox fallback further down — so it runs at import time, unconditionally.

@@ -42,10 +42,16 @@ def get_pid_by_name(process_name: str) -> Optional[int]:
         kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
         kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
 
-        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32FirstW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(PROCESSENTRY32W),
+        ]
         kernel32.Process32FirstW.restype = wintypes.BOOL
 
-        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32NextW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(PROCESSENTRY32W),
+        ]
         kernel32.Process32NextW.restype = wintypes.BOOL
 
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -92,14 +98,16 @@ def get_udp_ports_for_pid(pid: int) -> list[int]:
             wintypes.BOOL,
             wintypes.ULONG,
             ctypes.c_int,
-            wintypes.ULONG
+            wintypes.ULONG,
         ]
         iphlpapi.GetExtendedUdpTable.restype = wintypes.DWORD
 
         dwSize = wintypes.DWORD(0)
 
         # First call to get the required buffer size
-        iphlpapi.GetExtendedUdpTable(None, ctypes.byref(dwSize), False, AF_INET, UDP_TABLE_OWNER_PID, 0)
+        iphlpapi.GetExtendedUdpTable(
+            None, ctypes.byref(dwSize), False, AF_INET, UDP_TABLE_OWNER_PID, 0
+        )
         if dwSize.value == 0:
             return []
 
@@ -107,7 +115,9 @@ def get_udp_ports_for_pid(pid: int) -> list[int]:
         buffer = ctypes.create_string_buffer(dwSize.value)
 
         # Second call to populate the buffer
-        result = iphlpapi.GetExtendedUdpTable(buffer, ctypes.byref(dwSize), False, AF_INET, UDP_TABLE_OWNER_PID, 0)
+        result = iphlpapi.GetExtendedUdpTable(
+            buffer, ctypes.byref(dwSize), False, AF_INET, UDP_TABLE_OWNER_PID, 0
+        )
         if result != 0:
             logger.warning("GetExtendedUdpTable failed with error code %d", result)
             return []
@@ -145,10 +155,14 @@ def get_gta_udp_port(default_port: int = 6672) -> int:
     if pid is not None:
         ports = get_udp_ports_for_pid(pid)
         if ports:
-            logger.info("Detected GTA5.exe running with PID %d on UDP port %d", pid, ports[0])
+            logger.info(
+                "Detected GTA5.exe running with PID %d on UDP port %d", pid, ports[0]
+            )
             return ports[0]
         else:
-            logger.warning("GTA5.exe process found (PID %d), but no active UDP ports detected", pid)
+            logger.warning(
+                "GTA5.exe process found (PID %d), but no active UDP ports detected", pid
+            )
     else:
         logger.debug("GTA5.exe is not running")
 

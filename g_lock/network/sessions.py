@@ -244,7 +244,8 @@ class AbstractPacketFilter(ABC):
                             ip in whitelist_ips
                             or ip_in_cidr_block_set(ip, whitelist_cidr_blocks)
                             or self._is_lan_ip(ip)
-                            or find_matching_cidr_block(ip, dynamic_blacklist) is not None
+                            or find_matching_cidr_block(ip, dynamic_blacklist)
+                            is not None
                         )
                         if not is_exempt:
                             if ip not in packet_rates:
@@ -257,7 +258,9 @@ class AbstractPacketFilter(ABC):
                                     new_count = count + 1
                                     packet_rates[ip] = (window_start, new_count)
                                     if new_count >= ips_pps_threshold:
-                                        temp_blacklisted_ips[ip] = now + ips_ban_duration
+                                        temp_blacklisted_ips[ip] = (
+                                            now + ips_ban_duration
+                                        )
                                         decision = False
                                         reason = f"Flood Detected ({new_count} PPS)"
                                         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
