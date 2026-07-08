@@ -90,9 +90,7 @@ class Menu:
                     blacklist_ips.add(ip_calc)
             except questionary.ValidationError:
                 pass
-        blacklist_blocks = construct_cidr_block_set(list(blacklist_cidr)).union(
-            Menu.dynamic_blacklist
-        )
+        blacklist_blocks = construct_cidr_block_set(list(blacklist_cidr))
 
         session = PrivateSession(
             locked=locked,
@@ -102,6 +100,7 @@ class Menu:
             whitelist_blocks=whitelist_blocks,
             blacklist_ips=blacklist_ips,
             blacklist_blocks=blacklist_blocks,
+            dynamic_blacklist=Menu.dynamic_blacklist,
             known_allowed={PRIVATE_IP, PUBLIC_IP},
         )
         session.mode_label = "PrivateSessionLocked" if locked else "PrivateSessionOpen"

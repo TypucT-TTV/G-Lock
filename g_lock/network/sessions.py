@@ -12,6 +12,7 @@ import pydivert
 
 from network.sessioninfo import SessionInfo
 from util.network import find_matching_cidr_block, ip_in_cidr_block_set
+from util.process import get_gta_udp_port
 from util.types import CIDR_BLOCK
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,9 @@ class AbstractPacketFilter(ABC):
             whitelist_ips,
             whitelist_cidr_blocks,
             dynamic_blacklist,
+            ips_enabled,
+            ips_pps_threshold,
+            ips_ban_duration,
         ) = build_classification_context()
 
         self.process = Process(
@@ -132,6 +136,9 @@ class AbstractPacketFilter(ABC):
                 whitelist_ips,
                 whitelist_cidr_blocks,
                 dynamic_blacklist,
+                ips_enabled,
+                ips_pps_threshold,
+                ips_ban_duration,
             ),
             daemon=True,
         )
@@ -140,6 +147,20 @@ class AbstractPacketFilter(ABC):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__} with priority {self.priority}"
+
+    def _is_lan_ip(self, ip: str) -> bool:
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            first, second = int(parts[0]), int(parts[1])
+        except ValueError:
+            return False
+        return (
+            first == 10
+            or (first == 192 and second == 168)
+            or (first == 172 and 16 <= second <= 31)
+        )
 
     def start(self) -> None:
         self.process.start()
@@ -172,6 +193,9 @@ class AbstractPacketFilter(ABC):
         whitelist_ips: set[str],
         whitelist_cidr_blocks: set[CIDR_BLOCK],
         dynamic_blacklist: set[CIDR_BLOCK],
+        ips_enabled: bool,
+        ips_pps_threshold: int,
+        ips_ban_duration: int,
     ) -> None:
         import time
 
@@ -192,11 +216,61 @@ class AbstractPacketFilter(ABC):
             else None
         )
 
+        target_port = get_gta_udp_port()
+        packet_filter = f"udp.DstPort == {target_port} and udp.PayloadLength > 0 and ip"
+
+        temp_blacklisted_ips: dict[str, float] = {}
+        packet_rates: dict[str, tuple[float, int]] = {}
+
         with contextlib.suppress(KeyboardInterrupt):
             self.queue.send(True)
-            with pydivert.WinDivert(PACKET_FILTER, priority=self.priority) as w:
+            with pydivert.WinDivert(packet_filter, priority=self.priority) as w:
                 for packet in w:
-                    decision, reason = self.is_packet_allowed(packet)
+                    ip = packet.ip.src_addr
+                    now = time.monotonic()
+
+                    if ips_enabled and ip in temp_blacklisted_ips:
+                        if now < temp_blacklisted_ips[ip]:
+                            decision = False
+                            reason = "Blocked - Flood Protection Active"
+                        else:
+                            del temp_blacklisted_ips[ip]
+                            decision, reason = self.is_packet_allowed(packet)
+                    else:
+                        decision, reason = self.is_packet_allowed(packet)
+
+                    if ips_enabled and decision and packet.is_inbound:
+                        is_exempt = (
+                            ip in whitelist_ips
+                            or ip_in_cidr_block_set(ip, whitelist_cidr_blocks)
+                            or self._is_lan_ip(ip)
+                            or find_matching_cidr_block(ip, dynamic_blacklist) is not None
+                        )
+                        if not is_exempt:
+                            if ip not in packet_rates:
+                                packet_rates[ip] = (now, 1)
+                            else:
+                                window_start, count = packet_rates[ip]
+                                if now - window_start >= 1.0:
+                                    packet_rates[ip] = (now, 1)
+                                else:
+                                    new_count = count + 1
+                                    packet_rates[ip] = (window_start, new_count)
+                                    if new_count >= ips_pps_threshold:
+                                        temp_blacklisted_ips[ip] = now + ips_ban_duration
+                                        decision = False
+                                        reason = f"Flood Detected ({new_count} PPS)"
+                                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                                        log_queue.put(
+                                            (
+                                                timestamp,
+                                                ip,
+                                                "BLOCK",
+                                                len(packet.payload),
+                                                reason,
+                                            )
+                                        )
+
                     if decision:
                         w.send(packet)
 
@@ -298,6 +372,7 @@ class PrivateSession(AbstractPacketFilter):
         whitelist_blocks: set[CIDR_BLOCK],
         blacklist_ips: set[str],
         blacklist_blocks: set[CIDR_BLOCK],
+        dynamic_blacklist: set[CIDR_BLOCK],
         known_allowed: Optional[set[str]] = None,
         session_info: Optional[SessionInfo] = None,
         debug: bool = False,
@@ -308,21 +383,8 @@ class PrivateSession(AbstractPacketFilter):
         self.whitelist_blocks = whitelist_blocks
         self.blacklist_ips = blacklist_ips
         self.blacklist_blocks = blacklist_blocks
+        self.dynamic_blacklist = dynamic_blacklist
         self.known_allowed = known_allowed if known_allowed is not None else set()
-
-    def _is_lan_ip(self, ip: str) -> bool:
-        parts = ip.split(".")
-        if len(parts) != 4:
-            return False
-        try:
-            first, second = int(parts[0]), int(parts[1])
-        except ValueError:
-            return False
-        return (
-            first == 10
-            or (first == 192 and second == 168)
-            or (first == 172 and 16 <= second <= 31)
-        )
 
     def is_packet_allowed(self, packet: pydivert.Packet) -> tuple[bool, str]:
         ip = packet.ip.src_addr
@@ -332,7 +394,7 @@ class PrivateSession(AbstractPacketFilter):
         if ip in self.known_allowed:
             return True, "Known Allowed IP"
 
-        # 1. Check blacklist (always block)
+        # 1. Check personal blacklist (always block)
         if ip in self.blacklist_ips:
             return False, "Blacklisted IP"
 
@@ -341,28 +403,37 @@ class PrivateSession(AbstractPacketFilter):
             self.blacklist_ips.add(ip)  # Cache for future lookups
             return False, f"Blacklisted Range ({matched_blacklist_cidr})"
 
-        # 2. Check whitelist (always allow, even when locked)
+        # 2. Check dynamic blacklist (only block if session is locked)
+        if self.locked:
+            matched_dynamic_cidr = find_matching_cidr_block(ip, self.dynamic_blacklist)
+            if matched_dynamic_cidr is not None:
+                if size in HEARTBEAT_SIZES:
+                    return True, "Heartbeat (Relay)"
+                # Block everything else from relays when locked to prevent tunneling in
+                return False, f"Locked - Blocked Relay Traffic ({matched_dynamic_cidr})"
+
+        # 3. Check whitelist (always allow, even when locked)
         if ip in self.whitelist_ips:
             return True, "Whitelisted IP"
 
         if ip_in_cidr_block_set(ip, self.whitelist_blocks):
             return True, "Whitelisted Range"
 
-        # 3. Always allow LAN and heartbeats
+        # 4. Always allow LAN and heartbeats
         if self._is_lan_ip(ip):
             return True, "LAN"
 
         if size in HEARTBEAT_SIZES:
             return True, "Heartbeat"
 
-        # 4. Lock state logic
+        # 5. Lock state logic
         if self.locked:
             if size in MATCHMAKING_SIZES:
                 return False, "Locked - Unknown Matchmaking Blocked"
             self.known_allowed.add(ip)
             return True, "Locked - Unknown Non-Matchmaking Allowed"
 
-        # 5. Unlocked state: allow everyone else
+        # 6. Unlocked state: allow everyone else
         self.known_allowed.add(ip)
         return True, "Allowed"
 
@@ -387,8 +458,10 @@ class DebugSession:
 
     def run(self) -> None:
         debug_logger.debug("Started debugging")
+        target_port = get_gta_udp_port()
+        packet_filter = f"udp.DstPort == {target_port} and udp.PayloadLength > 0 and ip"
         with pydivert.WinDivert(
-            PACKET_FILTER, priority=self.priority, flags=pydivert.Flag.SNIFF
+            packet_filter, priority=self.priority, flags=pydivert.Flag.SNIFF
         ) as w:
             for packet in w:
                 dst = packet.ip.dst_addr

@@ -28,6 +28,9 @@ class ConfigDataType(TypedDict, total=False):
     zoom_factor: float
     verbose_logging_enabled: bool
     verbose_flood_threshold: int
+    ips_enabled: bool
+    ips_pps_threshold: int
+    ips_ban_duration: int
 
 
 class ConfigData(metaclass=Singleton):
@@ -51,6 +54,9 @@ class ConfigData(metaclass=Singleton):
                 "zoom_factor": 1.0,
                 "verbose_logging_enabled": True,
                 "verbose_flood_threshold": 50,
+                "ips_enabled": True,
+                "ips_pps_threshold": 150,
+                "ips_ban_duration": 60,
             }
             for k, v in defaults.items():
                 if k not in self.data:
@@ -75,6 +81,9 @@ class ConfigData(metaclass=Singleton):
                 "zoom_factor": 1.0,
                 "verbose_logging_enabled": True,
                 "verbose_flood_threshold": 50,
+                "ips_enabled": True,
+                "ips_pps_threshold": 150,
+                "ips_ban_duration": 60,
             }
             self.save()
 

@@ -8,7 +8,8 @@ from typing import Any
 
 import pydivert
 
-from network.sessions import MATCHMAKING_SIZES, PACKET_FILTER
+from network.sessions import MATCHMAKING_SIZES
+from util.process import get_gta_udp_port
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,19 @@ class ConnectionLogger:
         self.process.start()
         logger.info("Dispatched ConnectionLogger process")
 
+    def stop(self) -> None:
+        self.process.terminate()
+        self.process.join()
+
     def run(self, log_queue: Any, filter_active_event: Any) -> None:
         last_seen: dict[str, float] = {}
 
+        target_port = get_gta_udp_port()
+        packet_filter = f"udp.DstPort == {target_port} and udp.PayloadLength > 0 and ip"
+
         with contextlib.suppress(KeyboardInterrupt):
             with pydivert.WinDivert(
-                PACKET_FILTER, priority=self.priority, flags=pydivert.Flag.SNIFF
+                packet_filter, priority=self.priority, flags=pydivert.Flag.SNIFF
             ) as w:
                 for packet in w:
                     # If a filter is active, let the filter handle logging

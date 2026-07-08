@@ -7,7 +7,7 @@ from multiprocessing import freeze_support
 from gui.dpi import make_process_dpi_aware
 from util.crash import crash_report
 
-__version__ = "1.0.0"
+from __version__ import __version__
 
 # Must happen before ANY Tk window is created — including the crash-handler's
 # messagebox fallback further down — so it runs at import time, unconditionally.
@@ -79,11 +79,12 @@ def _main() -> None:
     # session filter (if any) is active — so "who connected and when" can be
     # investigated later even if you were just sitting in "Open" the whole
     # time a cheater got in.
-    ConnectionLogger().start()
+    conn_logger = ConnectionLogger()
+    conn_logger.start()
 
     register_hotkeys(Menu)
     Menu.launch_default_blacklist_session()
-    window = MainWindow(Menu, version=__version__)
+    window = MainWindow(Menu, version=__version__, connection_logger=conn_logger)
     window.run()
 
 

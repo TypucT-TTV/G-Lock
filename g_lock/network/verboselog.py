@@ -100,7 +100,7 @@ def canonical_reason(cls: str, decision: bool, raw_reason: str) -> str:
 
 
 def build_classification_context() -> (
-    tuple[bool, int, set[str], set[CIDR_BLOCK], set[CIDR_BLOCK]]
+    tuple[bool, int, set[str], set[CIDR_BLOCK], set[CIDR_BLOCK], bool, int, int]
 ):
     """
     Snapshots the data needed to classify IPs and gate verbose logging, for a
@@ -116,6 +116,9 @@ def build_classification_context() -> (
 
     verbose_enabled = bool(Menu.config.get("verbose_logging_enabled", True))
     flood_threshold = int(Menu.config.get("verbose_flood_threshold", 50))
+    ips_enabled = bool(Menu.config.get("ips_enabled", True))
+    ips_pps_threshold = int(Menu.config.get("ips_pps_threshold", 80))
+    ips_ban_duration = int(Menu.config.get("ips_ban_duration", 300))
 
     whitelist_ips: set[str] = set()
     whitelist_cidr: list[str] = []
@@ -131,6 +134,9 @@ def build_classification_context() -> (
         whitelist_ips,
         construct_cidr_block_set(whitelist_cidr),
         Menu.dynamic_blacklist,
+        ips_enabled,
+        ips_pps_threshold,
+        ips_ban_duration,
     )
 
 

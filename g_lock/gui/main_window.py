@@ -6,13 +6,16 @@ import time
 import tkinter as tk
 from datetime import date
 from tkinter import simpledialog, ttk
-from typing import Any, Callable, Optional, TextIO
+from typing import Any, Callable, Optional, TextIO, TYPE_CHECKING
 
 from config.globallist import Blacklist, Whitelist
 from gui import dpi, i18n, icons, list_editor, settings_editor, theme, widgets
 from gui.adapter import TkUIAdapter
 from gui.i18n import t
 from menu.menu import Menu, Prompts
+
+if TYPE_CHECKING:
+    from network.connectionlog import ConnectionLogger
 
 _QUEUE_POLL_MS = 100
 
@@ -48,9 +51,15 @@ _SESSION_BUTTON_FILTER_CLASS = {
 
 
 class MainWindow:
-    def __init__(self, menu: type[Menu], version: str = ""):
+    def __init__(
+        self,
+        menu: type[Menu],
+        version: str = "",
+        connection_logger: Optional[ConnectionLogger] = None,
+    ):
         self.menu = menu
         self.title_prefix = f"G-Lock {version}".strip()
+        self.connection_logger = connection_logger
         i18n.load_saved_language()
 
         # Initialize zoom factor
@@ -460,6 +469,16 @@ class MainWindow:
         return _dispatch
 
     def _on_quit(self) -> None:
+        try:
+            self.menu.stop_session()
+        except Exception:
+            pass
+        try:
+            if self.connection_logger is not None:
+                self.connection_logger.stop()
+        except Exception:
+            pass
+
         try:
             if self.root.state() == "normal":
                 geom = self.root.geometry()
