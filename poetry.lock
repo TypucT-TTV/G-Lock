@@ -519,27 +519,6 @@ files = [
 wcwidth = "*"
 
 [[package]]
-name = "prsw"
-version = "0.3.1"
-description = "PRSW, the Python RIPE Stat Wrapper, is a python package that simplifies access to the RIPE Stat public data API."
-optional = false
-python-versions = "~=3.7"
-groups = ["main"]
-files = [
-    {file = "prsw-0.3.1-py3-none-any.whl", hash = "sha256:ad200c333403f7f617be92acf100168d728b2c41fdc5a59ff22b3288c43342db"},
-    {file = "prsw-0.3.1.tar.gz", hash = "sha256:7065bb2875f1d8a9fb602337096d65e8a25aeaca553d6c0cc0c5f3eaffcace2b"},
-]
-
-[package.dependencies]
-requests = ">=2"
-
-[package.extras]
-dev = ["black", "flake8", "packaging", "pre-commit", "pydocstyle", "pytest (>=2.7.3)", "sphinx", "sphinx-rtd-theme"]
-lint = ["black", "flake8", "pydocstyle", "sphinx", "sphinx-rtd-theme"]
-readthedocs = ["sphinx"]
-test = ["pytest (>=2.7.3)"]
-
-[[package]]
 name = "pycodestyle"
 version = "2.10.0"
 description = "Python style guide checker"
@@ -946,4 +925,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10.0,<3.12"
-content-hash = "72e2e94c2e03f636971e6c986e31b9627258169b9afac8bd16f30cda94f7ac3a"
+content-hash = "bc0e9065b54071fd9fe261bc0293be4b1b826d1c1c746abc7d507dfb6ab579fe"
