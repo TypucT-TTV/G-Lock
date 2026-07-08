@@ -80,6 +80,13 @@ def build() -> None:
     # 4. Update spec/version.txt
     update_version_txt(os.path.join("spec", "version.txt"), new_version)
 
+    # Ensure db.json exists (ignored in git, so it might be missing on clean clones/runners)
+    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "db.json"))
+    if not os.path.exists(db_path):
+        print(f"Creating dummy db.json at {db_path} for PyInstaller build.")
+        with open(db_path, "w", encoding="utf-8") as f:
+            f.write("{}")
+
     # 5. Run PyInstaller build
     PyInstaller.__main__.run(
         (
