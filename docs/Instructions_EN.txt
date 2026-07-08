@@ -18,9 +18,9 @@ message explaining this).
 MAIN WINDOW
 -----------
 At the top: a colored indicator and a text status:
-  * Green / "Open"            — session open for everyone except players in your blacklist (runs BlacklistSession in the background).
-  * Red / "LOCKED"            — a Locked session is active (blocks new joins).
-  * "Active: <session type>"  — some other mode is currently running (e.g. Solo).
+  * Green / "Open"            — session open for everyone except players in your blacklist (runs PrivateSession with locked=False in the background).
+  * Red / "LOCKED"            — a Locked session is active (runs PrivateSession with locked=True, blocks new joins).
+  * "Active: Solo"            — Solo session is currently running (SoloSession).
 
 The app's taskbar icon also changes color (green/red) in sync with this
 status.
@@ -35,44 +35,19 @@ SESSION MODE BUTTONS (each has an indicator dot on the left)
 The dot next to each button lights up green if that specific mode is the
 one currently active.
 
-1. Solo Session
+1. Lock Session
+   Blocks NEW join attempts, but doesn't touch anyone already inside. This
+   exact same thing can be toggled with the F9 hotkey (see below).
+   NOTE: While locked, matchmaking packets are blocked. To switch to another populated session, you MUST first unlock the session (F9 or "Open" in the GUI), search for a new session, and lock it again (F9) only after you successfully join. Service packets (Heartbeats) are always allowed to prevent any Social Club or cloud save connection issues.
+
+2. Solo Session
    No one can connect to you, but critical R* and Social Club traffic still
    goes through. If you were in a session with others, they'll lose
    connection to you.
 
-2. Whitelisted Session
-   Only IP addresses in your Whitelist will be able to connect (see "Edit
-   lists" below).
-
-3. Blacklisted Session
-   IP addresses in your Blacklist won't be able to connect. NOT RECOMMENDED
-   — GTA Online has custom routing specifically for the case of only a
-   handful of IPs being blocked, so this mode's effectiveness is limited.
-
-4. Auto Whitelisted Session
-   Like Whitelisted, but everyone CURRENTLY in the session gets temporarily
-   added to the whitelist automatically (60-second collection, cancellable).
-   If G-Lock spots a suspicious IP (looks like it's tunnelling through R*
-   servers), you'll be asked whether to keep it — these IPs are forgotten
-   once the session ends.
-
-5. Locked Session
-   Blocks NEW join attempts, but doesn't touch anyone already inside. This
-   exact same thing can be toggled with the F9 hotkey (see below) — you
-   don't have to click the button in the window for it.
-
-6. Kick unknowns
-   Temporarily (10 seconds, with a cancellable progress bar) switches the
-   session to whitelist-only, kicking everyone else out, then reverts back
-   automatically. NOT RECOMMENDED as your main line of defense.
-
-7. Empty Session (force Session Host)
+3. Empty Session
    Splits you off from the current session so you're alone — guaranteeing
    you become its host.
-
-8. Kick by IP
-   Collects IP addresses in the session (60 seconds, cancellable), then lets
-   you pick exactly who to kick.
 
 F9 HOTKEY
 ---------
@@ -82,7 +57,7 @@ even while GTA has focus and is running in exclusive fullscreen.
   * Press F9              — the session locks, no new joins.
   * Press F9 again         — open to everyone again.
 Note: G-Lock only ever keeps ONE filter active at a time. If another
-session type was already running (e.g. Whitelisted), F9 will REPLACE it
+session type was already running (e.g. Solo), F9 will REPLACE it
 with Lock. Pressing F9 again returns you to "Open", not back to whatever
 was running before.
 

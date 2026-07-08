@@ -60,10 +60,11 @@ def draw_button_shape(
         tags=tag,
     )
 
+    btn_scale = h / 34.0
     text_x = x + w / 2
     if status_color is not None:
-        dot_cx = x + 22.0
-        r = 5.0
+        dot_cx = x + 22.0 * btn_scale
+        r = 5.0 * btn_scale
         cy = y + h / 2
         canvas.create_oval(
             dot_cx - r,
@@ -74,7 +75,7 @@ def draw_button_shape(
             outline="",
             tags=tag,
         )
-        text_x = (dot_cx + r + 8 + x + w) / 2
+        text_x = (dot_cx + r + 8.0 * btn_scale + x + w) / 2
 
     canvas.create_text(
         text_x, y + h / 2, text=text, fill=text_color, font=font, tags=tag
@@ -270,11 +271,12 @@ class CanvasButton:
             tags=self._tag,
         )
 
+        btn_scale = height / 34.0
         text_x = x + width / 2
         self._dot_id: Optional[int] = None
         if show_status_dot:
-            dot_cx = x + 22.0
-            r = 5.0
+            dot_cx = x + 22.0 * btn_scale
+            r = 5.0 * btn_scale
             cy = y + height / 2
             self._dot_id = canvas.create_oval(
                 dot_cx - r,
@@ -285,7 +287,7 @@ class CanvasButton:
                 outline="",
                 tags=self._tag,
             )
-            text_x = (dot_cx + r + 8 + x + width) / 2
+            text_x = (dot_cx + r + 8.0 * btn_scale + x + width) / 2
 
         self._text_id = canvas.create_text(
             text_x,

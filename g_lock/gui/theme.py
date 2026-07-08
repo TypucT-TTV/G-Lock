@@ -147,7 +147,10 @@ def apply_ttk_style() -> None:
         "Treeview.Heading",
         background=BG,
         foreground=TEXT_DIM,
-        relief="flat",
+        relief="raised",
         bordercolor=BORDER_DIM,
+        lightcolor=BG,
+        darkcolor=BG,
+        borderwidth=1,
     )
     style.map("Treeview.Heading", background=[("active", PANEL_HOVER)])

@@ -239,6 +239,8 @@ class MainWindow:
 
         # Workaround for ttk Treeview tag color bug in Windows/Tkinter
         style = ttk.Style()
+        style.configure("Treeview", font=font_ui, rowheight=max(16, round(26 * scale)))
+        style.configure("Treeview.Heading", font=font_ui_bold)
         try:
 
             def fixed_map(option: str) -> list[Any]:
@@ -368,15 +370,23 @@ class MainWindow:
             self.tree.heading("ip", text=t("col_ip"))
             self.tree.heading("detail", text=t("col_detail"))
 
+            saved_widths = self.menu.config.get("column_widths") or {}
+            time_w = saved_widths.get("time", max(55, round(75 * scale)))
+            action_w = saved_widths.get("action", max(65, round(80 * scale)))
+            ip_w = saved_widths.get("ip", max(100, round(125 * scale)))
+            detail_w = saved_widths.get("detail", max(120, round(170 * scale)))
+
             self.tree.column(
-                "time", width=round(70 * scale), minwidth=50, stretch=False
+                "time", width=time_w, minwidth=50, stretch=False
             )
             self.tree.column(
-                "action", width=round(75 * scale), minwidth=55, stretch=False
+                "action", width=action_w, minwidth=55, stretch=False
             )
-            self.tree.column("ip", width=round(120 * scale), minwidth=90, stretch=False)
             self.tree.column(
-                "detail", width=round(150 * scale), minwidth=100, stretch=True
+                "ip", width=ip_w, minwidth=90, stretch=True
+            )
+            self.tree.column(
+                "detail", width=detail_w, minwidth=100, stretch=True
             )
 
             self.tree.tag_configure("allow", foreground=theme.SUCCESS)
@@ -433,6 +443,18 @@ class MainWindow:
         self._rebuild()
 
     def _rebuild(self) -> None:
+        try:
+            if self.tree is not None:
+                col_widths = {}
+                for col in ("time", "action", "ip", "detail"):
+                    try:
+                        col_widths[col] = self.tree.column(col, option="width")
+                    except Exception:
+                        pass
+                self.menu.config.set("column_widths", col_widths)
+        except Exception:
+            pass
+
         self.canvas.destroy()
         self._build_widgets()
         self._apply_state()
@@ -494,7 +516,17 @@ class MainWindow:
                         self.menu.config.set("window_y", y)
                         self.menu.config.set("window_w", w)
                         self.menu.config.set("window_h", h)
-                        self.menu.config.save()
+
+                if self.tree is not None:
+                    col_widths = {}
+                    for col in ("time", "action", "ip", "detail"):
+                        try:
+                            col_widths[col] = self.tree.column(col, option="width")
+                        except Exception:
+                            pass
+                    self.menu.config.set("column_widths", col_widths)
+
+                self.menu.config.save()
         except Exception:
             pass
         self.root.destroy()
@@ -553,6 +585,12 @@ class MainWindow:
 
         new_zoom = round(self._zoom_factor + delta, 1)
         if 0.5 <= new_zoom <= 2.0:
+            saved_widths = self.menu.config.get("column_widths")
+            if saved_widths:
+                ratio = new_zoom / self._zoom_factor
+                scaled_widths = {k: round(v * ratio) for k, v in saved_widths.items()}
+                self.menu.config.set("column_widths", scaled_widths)
+
             self._zoom_factor = new_zoom
             self.menu.config.set("zoom_factor", new_zoom)
             self.menu.config.save()
