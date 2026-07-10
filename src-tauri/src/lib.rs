@@ -354,6 +354,7 @@ pub fn run() {
                         tauri::WindowEvent::CloseRequested { .. } => {
                             let state = STATE.read();
                             let _ = save_config(&state.config);
+                            firewall::stop_firewall_worker();
                         }
                         _ => {}
                     }
@@ -379,6 +380,11 @@ pub fn run() {
             read_log_file,
             open_log_file_in_notepad
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                firewall::stop_firewall_worker();
+            }
+        });
 }

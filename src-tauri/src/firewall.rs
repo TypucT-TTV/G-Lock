@@ -604,7 +604,7 @@ pub fn start_firewall(app: AppHandle) {
         while !*STOP_FLAG.read() {
             let packet = match w.recv(Some(&mut buf)) {
                 Ok(p) => p,
-                Err(_) => continue,
+                Err(_) => break,
             };
 
             let parsed = match parse_ipv4_udp(&packet.data) {
@@ -675,14 +675,9 @@ pub fn start_firewall(app: AppHandle) {
                     }
                     _ => {
                         if is_locked {
-                            if !is_friend && !is_lan {
-                                if MATCHMAKING_SIZES.contains(&payload_len) {
-                                    decision = false;
-                                    reason = "Blocked - Locked Session".to_string();
-                                } else if is_relay {
-                                    decision = false;
-                                    reason = "Blocked - Relay (Locked)".to_string();
-                                }
+                            if !is_friend && !is_lan && MATCHMAKING_SIZES.contains(&payload_len) {
+                                decision = false;
+                                reason = "Blocked - Locked Session".to_string();
                             }
                         }
                     }
@@ -791,6 +786,27 @@ pub fn start_firewall(app: AppHandle) {
 #[allow(dead_code)]
 pub fn stop_firewall_worker() {
     *STOP_FLAG.write() = true;
+
+    // Stop and delete the WinDivert driver service to force the blocking recv() call to abort
+    // and release the files. Since the app is running as Administrator, this will succeed.
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("sc.exe")
+        .args(&["stop", "WinDivert1.3"])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+    let _ = std::process::Command::new("sc.exe")
+        .args(&["delete", "WinDivert1.3"])
+        .creation_flags(0x08000000)
+        .output();
+
+    let _ = std::process::Command::new("sc.exe")
+        .args(&["stop", "WinDivert1.4"])
+        .creation_flags(0x08000000)
+        .output();
+    let _ = std::process::Command::new("sc.exe")
+        .args(&["delete", "WinDivert1.4"])
+        .creation_flags(0x08000000)
+        .output();
 }
 
 #[cfg(test)]
