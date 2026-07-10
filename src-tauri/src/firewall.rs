@@ -582,15 +582,18 @@ pub fn start_firewall(app: AppHandle) {
     std::thread::spawn(move || {
         let port = get_gta_udp_port(6672);
         let filter = format!("udp.DstPort == {} and udp.PayloadLength > 0 and ip", port);
-        
+        log_system_message(&format!("SYSTEM: Opening WinDivert on UDP port {} (filter: {})", port, filter));
+
         let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(&filter, 0, WinDivertFlags::default()) {
             Ok(handle) => handle,
             Err(e) => {
                 eprintln!("Failed to open WinDivert handle: {:?}", e);
+                log_system_message(&format!("SYSTEM ERROR: Failed to open WinDivert handle: {:?}", e));
                 STATE.write().is_running = false;
                 return;
             }
         };
+        log_system_message("SYSTEM: WinDivert handle opened successfully, packet capture started.");
 
         let session_start = Instant::now();
         let mut rates: HashMap<String, RateStats> = HashMap::new();
@@ -608,7 +611,10 @@ pub fn start_firewall(app: AppHandle) {
         while !*STOP_FLAG.read() {
             let packet = match w.recv(Some(&mut buf)) {
                 Ok(p) => p,
-                Err(_) => break,
+                Err(e) => {
+                    log_system_message(&format!("SYSTEM ERROR: WinDivert recv failed, capture loop exiting: {:?}", e));
+                    break;
+                }
             };
 
             let parsed = match parse_ipv4_udp(&packet.data) {
