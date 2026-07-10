@@ -68,12 +68,12 @@ def classify_ip(
     whitelist_cidr_blocks: set[CIDR_BLOCK],
     dynamic_blacklist: set[CIDR_BLOCK],
 ) -> str:
-    if ip in whitelist_ips or ip_in_cidr_block_set(ip, whitelist_cidr_blocks):
-        return "WHITELIST_FRIEND"
     if ip.startswith(_AZURE_RELAY_PREFIX) or ip_in_cidr_block_set(
         ip, dynamic_blacklist
     ):
         return "R_STAR_AZURE"
+    if ip in whitelist_ips or ip_in_cidr_block_set(ip, whitelist_cidr_blocks):
+        return "WHITELIST_FRIEND"
     if is_lan_ip(ip):
         return "LAN"
     return "UNKNOWN"
@@ -100,7 +100,7 @@ def canonical_reason(cls: str, decision: bool, raw_reason: str) -> str:
 
 
 def build_classification_context() -> (
-    tuple[bool, int, set[str], set[CIDR_BLOCK], set[CIDR_BLOCK], bool, int, int]
+    tuple[bool, int, set[str], set[CIDR_BLOCK], set[CIDR_BLOCK], bool, int, int, bool, int, int, int]
 ):
     """
     Snapshots the data needed to classify IPs and gate verbose logging, for a
@@ -119,6 +119,10 @@ def build_classification_context() -> (
     ips_enabled = bool(Menu.config.get("ips_enabled", True))
     ips_pps_threshold = int(Menu.config.get("ips_pps_threshold", 80))
     ips_ban_duration = int(Menu.config.get("ips_ban_duration", 300))
+    auto_lock_on_attack = bool(Menu.config.get("auto_lock_on_attack", False))
+    ips_adaptive_multiplier = int(Menu.config.get("ips_adaptive_multiplier", 5))
+    ips_adaptive_measurement_seconds = int(Menu.config.get("ips_adaptive_measurement_seconds", 45))
+    ips_fallback_threshold = int(Menu.config.get("ips_fallback_threshold", 250))
 
     whitelist_ips: set[str] = set()
     whitelist_cidr: list[str] = []
@@ -137,6 +141,10 @@ def build_classification_context() -> (
         ips_enabled,
         ips_pps_threshold,
         ips_ban_duration,
+        auto_lock_on_attack,
+        ips_adaptive_multiplier,
+        ips_adaptive_measurement_seconds,
+        ips_fallback_threshold,
     )
 
 
@@ -151,10 +159,11 @@ def write_marker(text: str) -> None:
 
 
 class _IPWindow:
-    __slots__ = ("count", "port", "decision", "reason", "cls", "flood_warned")
+    __slots__ = ("count", "suspicious_count", "port", "decision", "reason", "cls", "flood_warned")
 
     def __init__(self) -> None:
         self.count = 0
+        self.suspicious_count = 0
         self.port = 0
         self.decision = False
         self.reason = ""
@@ -179,7 +188,7 @@ class VerboseAggregator:
         self._window_start = time.monotonic()
         self._windows: dict[str, _IPWindow] = {}
 
-    def record(self, ip: str, port: int, cls: str, decision: bool, reason: str) -> None:
+    def record(self, ip: str, port: int, cls: str, decision: bool, reason: str, is_suspicious: bool) -> None:
         try:
             window = self._windows.get(ip)
             if window is None:
@@ -190,9 +199,11 @@ class VerboseAggregator:
             window.decision = decision
             window.reason = reason
             window.cls = cls
-            if not window.flood_warned and window.count >= self.flood_threshold:
-                window.flood_warned = True
-                self._emit_flood(ip, port, cls, decision, window.count)
+            if is_suspicious:
+                window.suspicious_count += 1
+                if not window.flood_warned and window.suspicious_count >= self.flood_threshold:
+                    window.flood_warned = True
+                    self._emit_flood(ip, port, cls, decision, window.suspicious_count)
             self._maybe_flush()
         except Exception:
             logger.exception("Verbose aggregator failed to record a packet")

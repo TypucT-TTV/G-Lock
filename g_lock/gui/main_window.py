@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
 import tkinter as tk
 from datetime import date
-from tkinter import simpledialog, ttk
+from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Callable, Optional, TextIO
 
 from config.globallist import Blacklist, Whitelist
@@ -13,6 +14,9 @@ from gui import dpi, i18n, icons, list_editor, settings_editor, theme, widgets
 from gui.adapter import TkUIAdapter
 from gui.i18n import t
 from menu.menu import Menu, Prompts
+
+logger = logging.getLogger(__name__)
+debug_logger = logging.getLogger("debugger")
 
 if TYPE_CHECKING:
     from network.connectionlog import ConnectionLogger
@@ -363,12 +367,17 @@ class MainWindow:
             title_lbl.pack(fill="x", pady=(0, 6))
 
             # Columns
-            columns = ("time", "action", "ip", "detail")
+            columns = ("wl", "bl", "time", "action", "ip", "detail")
             self.tree = ttk.Treeview(self.log_frame, columns=columns, show="headings")
+            self.tree.heading("wl", text="WL")
+            self.tree.heading("bl", text="BL")
             self.tree.heading("time", text=t("col_time"))
             self.tree.heading("action", text=t("col_action"))
             self.tree.heading("ip", text=t("col_ip"))
             self.tree.heading("detail", text=t("col_detail"))
+
+            self.tree.column("wl", width=max(25, round(30 * scale)), minwidth=25, stretch=False, anchor="center")
+            self.tree.column("bl", width=max(25, round(30 * scale)), minwidth=25, stretch=False, anchor="center")
 
             saved_widths = self.menu.config.get("column_widths") or {}
             time_w = saved_widths.get("time", max(55, round(75 * scale)))
@@ -382,6 +391,7 @@ class MainWindow:
             self.tree.column("detail", width=detail_w, minwidth=100, stretch=True)
 
             self.tree.tag_configure("allow", foreground=theme.SUCCESS)
+            self.tree.tag_configure("whitelist", foreground=theme.WARNING)
             self.tree.tag_configure("block", foreground=theme.DANGER)
             self.tree.tag_configure("relay", foreground="#5DADE2")
             self.tree.tag_configure("sniff", foreground=theme.TEXT_DIM)
@@ -400,7 +410,7 @@ class MainWindow:
                 self.tree.insert(
                     "",
                     "end",
-                    values=(time_val, act_val, ip_val, reason_val),
+                    values=("🟢", "🔴", time_val, act_val, ip_val, reason_val),
                     tags=(tag,),
                 )
             if self._log_history:
@@ -427,6 +437,7 @@ class MainWindow:
             )
 
             self.tree.bind("<Button-3>", self._show_log_context_menu)
+            self.tree.bind("<Button-1>", self._on_tree_click)
         else:
             self.tree = None
 
@@ -617,9 +628,11 @@ class MainWindow:
         locked = self.menu.context.is_locked()
         session_name = self.menu.context.active_session_name()
 
-        is_red = locked or session_name == "SoloSession"
+        is_red = locked or session_name in ("SoloSession", "EmergencySoloSession")
         if session_name == "SoloSession":
             text = t("name_solo_session")
+        elif session_name == "EmergencySoloSession":
+            text = t("status_panic")
         elif locked:
             text = t("status_locked")
         else:
@@ -692,6 +705,14 @@ class MainWindow:
                 if msg is None:
                     break
 
+                if isinstance(msg, tuple) and msg[0] == "INCIDENT":
+                    self._write_incident_to_log(msg[1])
+                    continue
+
+                if isinstance(msg, tuple) and msg[0] == "AUTOLOCK":
+                    self._trigger_autolock_safely(msg[1], msg[2])
+                    continue
+
                 timestamp, ip, action, size, reason = msg
 
                 # 1. Write to file
@@ -722,30 +743,117 @@ class MainWindow:
             except Exception:
                 time.sleep(0.5)
 
+    def _write_incident_to_log(self, incident_data: dict[str, Any]) -> None:
+        try:
+            from network.connectionlog import LOG_DIR
+
+            today_str = date.today().isoformat()
+            incident_file = LOG_DIR / f"incident_{today_str}.log"
+
+            start_time = incident_data["start_timestamp"]
+            end_time = incident_data.get(
+                "end_timestamp", time.strftime("%Y-%m-%d %H:%M:%S")
+            )
+
+            sizes_text = ""
+            for size, count in sorted(incident_data["size_histogram"].items()):
+                sizes_text += f"    Size {size:4d} bytes: {count:6d} packets\n"
+
+            pps_text = ""
+            for ts, pps in incident_data["pps_history"]:
+                pps_text += f"    {ts} - {pps} PPS\n"
+
+            log_content = (
+                f"================================================================================\n"
+                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DETECTED FLOOD / ANOMALY SPIKE\n"
+                f"--------------------------------------------------------------------------------\n"
+                f"Source IP:         {incident_data['ip']}\n"
+                f"IP Classification: {incident_data['class']}\n"
+                f"Start Time:        {start_time}\n"
+                f"End Time:          {end_time}\n"
+                f"Total Packets:     {incident_data['total_passed'] + incident_data['total_blocked']} "
+                f"(Allowed: {incident_data['total_passed']}, Blocked: {incident_data['total_blocked']})\n"
+                f"Initial Reason:    {incident_data['reason']}\n\n"
+                f"PPS History:\n{pps_text}\n"
+                f"Packet Size Histogram:\n{sizes_text}"
+                f"================================================================================\n\n"
+            )
+
+            with open(incident_file, "a", encoding="utf-8") as f:
+                f.write(log_content)
+        except Exception as e:
+            debug_logger.exception("Failed to write incident to log: %s", e)
+
+    def _trigger_autolock_safely(self, ip: str, pps: int) -> None:
+        def gui_task() -> None:
+            if not self.menu.config.get("auto_lock_on_attack", True):
+                return
+            if (
+                self.menu.context.active_session_name() == "PrivateSession"
+                and not self.menu.context.is_locked()
+            ):
+                self.menu.launch_private_session(locked=True)
+
+                from network.verboselog import write_marker
+                write_marker(f"SESSION AUTO-LOCKED due to attack from {ip} ({pps} PPS)")
+
+                from util.hotkeys import play_beep
+
+                def play_alarm() -> None:
+                    for _ in range(3):
+                        play_beep(1200, 150, 100)
+                        time.sleep(0.2)
+
+                threading.Thread(target=play_alarm, daemon=True).start()
+
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                self._add_log_entry_to_ui(
+                    (timestamp, ip, "AUTOLOCK", 0, f"Auto-Locked (Attack: {pps} PPS)")
+                )
+
+                # Also log to connections file
+                try:
+                    from network.connectionlog import LOG_DIR
+
+                    today_str = date.today().isoformat()
+                    conn_file = LOG_DIR / f"connections_{today_str}.log"
+                    with conn_file.open("a", encoding="utf-8") as f:
+                        f.write(
+                            f"[{timestamp}] [AUTOLOCK] {ip} (Size: 0) - Auto-Locked due to attack ({pps} PPS)\n"
+                        )
+                except Exception:
+                    pass
+
+                logger.info(
+                    "Auto-locked session due to attack from %s (%d PPS)", ip, pps
+                )
+
+        self.main_queue.put(gui_task)
+
     def _add_log_entry_to_ui(self, msg: tuple[str, str, str, int, str]) -> None:
         timestamp, ip, action, size, reason = msg
 
-        is_relay = (
-            ip.startswith("52.139.")
-            or ip.startswith("52.140.")
-            or ip.startswith("52.141.")
-            or ip.startswith("52.142.")
-        )
+        from util.network import ip_in_cidr_block_set
+
+        is_relay = ip_in_cidr_block_set(ip, self.menu.dynamic_blacklist)
+        is_friend = ip in Whitelist()
 
         if action == "BLOCK":
             tag = "block"
         elif is_relay:
             tag = "relay"
-        elif action == "ALLOW":
-            tag = "allow"
+        elif is_friend:
+            tag = "whitelist"
         else:
             tag = "sniff"
+
+        display_ip = f"{ip} [RELAY R*]" if is_relay else ip
 
         details = f"Size: {size}"
         if reason:
             details += f" ({reason})"
 
-        self._log_history.append((timestamp, action, ip, details, tag))
+        self._log_history.append((timestamp, action, display_ip, details, tag))
         if len(self._log_history) > 100:
             self._log_history.pop(0)
 
@@ -754,7 +862,7 @@ class MainWindow:
             if len(children) >= 100:
                 self.tree.delete(children[0])
             self.tree.insert(
-                "", "end", values=(timestamp, action, ip, details), tags=(tag,)
+                "", "end", values=("🟢", "🔴", timestamp, action, display_ip, details), tags=(tag,)
             )
             self.tree.yview_moveto(1.0)
 
@@ -766,10 +874,69 @@ class MainWindow:
             return None
         item = selection[0]
         values = self.tree.item(item, "values")
-        if not values or len(values) < 3:
+        if not values or len(values) < 5:
             return None
-        ip_val = values[2]
-        return str(ip_val) if ip_val is not None else None
+        ip_val = values[4]
+        if ip_val is not None:
+            return str(ip_val).split()[0]
+        return None
+
+    def _on_tree_click(self, event: tk.Event[tk.Misc]) -> None:
+        if not self.tree:
+            return
+        region = self.tree.identify_region(event.x, event.y)
+        if region == "cell":
+            column = self.tree.identify_column(event.x)
+            item = self.tree.identify_row(event.y)
+            if not item:
+                return
+            values = self.tree.item(item, "values")
+            if not values or len(values) < 5:
+                return
+            ip = str(values[4]).split()[0]
+
+            if column == "#1":  # WL clicked
+                self._quick_add_whitelist(ip)
+            elif column == "#2":  # BL clicked
+                self._quick_add_blacklist(ip)
+
+    def _quick_add_whitelist(self, ip: str) -> None:
+        from util.network import ip_in_cidr_block_set
+        if ip_in_cidr_block_set(ip, self.menu.dynamic_blacklist):
+            from tkinter import messagebox
+            messagebox.showwarning(
+                t("warning_title"),
+                t("error_ip_is_rockstar_relay"),
+                parent=self.root
+            )
+            return
+
+        wl = Whitelist()
+        wl.add(ip, "")
+        wl.save()
+
+        # Reload session on the fly
+        if self.menu.context.active_session_name() == "PrivateSession":
+            is_locked = self.menu.context.is_locked()
+            threading.Thread(
+                target=self.menu.launch_private_session,
+                args=(is_locked,),
+                daemon=True,
+            ).start()
+
+    def _quick_add_blacklist(self, ip: str) -> None:
+        bl = Blacklist()
+        bl.add(ip, "")
+        bl.save()
+
+        # Reload session on the fly
+        if self.menu.context.active_session_name() == "PrivateSession":
+            is_locked = self.menu.context.is_locked()
+            threading.Thread(
+                target=self.menu.launch_private_session,
+                args=(is_locked,),
+                daemon=True,
+            ).start()
 
     def _log_copy_ip(self) -> None:
         ip = self._get_selected_log_ip()
@@ -783,43 +950,13 @@ class MainWindow:
         ip = self._get_selected_log_ip()
         if not ip:
             return
-        name = simpledialog.askstring(
-            t("dialog_enter_name_title"),
-            t("dialog_enter_name_msg", ip=ip),
-            parent=self.root,
-        )
-        if name:
-            wl = Whitelist()
-            wl.add(ip, name)
-            wl.save()
-            if self.menu.context.active_session_name() == "PrivateSession":
-                is_locked = self.menu.context.is_locked()
-                threading.Thread(
-                    target=self.menu.launch_private_session,
-                    args=(is_locked,),
-                    daemon=True,
-                ).start()
+        self._quick_add_whitelist(ip)
 
     def _log_add_blacklist(self) -> None:
         ip = self._get_selected_log_ip()
         if not ip:
             return
-        name = simpledialog.askstring(
-            t("dialog_enter_name_title"),
-            t("dialog_enter_name_msg", ip=ip),
-            parent=self.root,
-        )
-        if name:
-            bl = Blacklist()
-            bl.add(ip, name)
-            bl.save()
-            if self.menu.context.active_session_name() == "PrivateSession":
-                is_locked = self.menu.context.is_locked()
-                threading.Thread(
-                    target=self.menu.launch_private_session,
-                    args=(is_locked,),
-                    daemon=True,
-                ).start()
+        self._quick_add_blacklist(ip)
 
     def _show_log_context_menu(self, event: tk.Event[tk.Misc]) -> None:
         if not self.tree or not hasattr(self, "log_menu"):

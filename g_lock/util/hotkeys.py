@@ -145,6 +145,62 @@ def _toggle_lock(menu: type[Menu]) -> None:
         _lock.release()
 
 
+def _trigger_panic_mode(menu: type[Menu]) -> None:
+    global _last_toggle
+
+    if not _lock.acquire(blocking=False):
+        return
+    try:
+        now = time.monotonic()
+        if now - _last_toggle < _DEBOUNCE_SECONDS:
+            return
+        _last_toggle = now
+
+        config = menu.config
+        sound_enabled = config.get("sound_enabled", True)
+        context = menu.context
+
+        from network.sessions import EmergencySoloSession
+        from network.verboselog import write_marker
+
+        if context.active_session_name() == "EmergencySoloSession":
+            menu.launch_private_session(locked=False)
+            write_marker("SESSION OPENED (Ctrl+F9 unlock)")
+            if sound_enabled:
+                freq = config.get("sound_unlock_freq", 400)
+                dur = config.get("sound_unlock_dur", 200)
+                vol = config.get("sound_unlock_vol", 80)
+                play_beep(freq, dur, vol)
+            print("[HOTKEY] Panic mode OFF — session Open")
+        else:
+            if context.is_filter_running():
+                context.kill_latest_filter()
+
+            session = EmergencySoloSession(
+                priority=context.priority, connection=menu.child_conn
+            )
+            context.add_filter(session)
+            context.start_latest_filter()
+
+            write_marker("SESSION PANICKED (Ctrl+F9)")
+
+            if sound_enabled:
+
+                def alarm() -> None:
+                    for _ in range(3):
+                        play_beep(1200, 100, 100)
+                        time.sleep(0.15)
+
+                threading.Thread(target=alarm, daemon=True).start()
+
+            print("[HOTKEY] EMERGENCY SOLO (PANIC) ACTIVE")
+    except Exception as e:
+        crash_report(e, "G-Lock panic hotkey callback crashed")
+        raise
+    finally:
+        _lock.release()
+
+
 def _poll_hotkey(menu: type[Menu]) -> None:
     """
     Polls physical key state via GetAsyncKeyState instead of installing a
@@ -154,18 +210,42 @@ def _poll_hotkey(menu: type[Menu]) -> None:
     after alt-tabbing back. GetAsyncKeyState reads the OS key-state table
     directly and isn't affected by that.
     """
-    was_pressed = False
+    was_pressed_normal = False
+    was_pressed_panic = False
     while True:
         try:
             vk_code = menu.config.get("hotkey_vk", VK_F9)
-            pressed = bool(ctypes.windll.user32.GetAsyncKeyState(vk_code) & 0x8000)
-            if pressed and not was_pressed:
+            panic_vk = menu.config.get("panic_hotkey_vk", VK_F9)
+            panic_ctrl = menu.config.get("panic_hotkey_ctrl", True)
+
+            ctrl_pressed = bool(ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000)
+
+            key_normal_down = bool(
+                ctypes.windll.user32.GetAsyncKeyState(vk_code) & 0x8000
+            )
+            key_panic_down = bool(
+                ctypes.windll.user32.GetAsyncKeyState(panic_vk) & 0x8000
+            )
+
+            if vk_code == panic_vk:
+                normal_pressed = key_normal_down and not ctrl_pressed
+                panic_pressed = key_normal_down and ctrl_pressed
+            else:
+                normal_pressed = key_normal_down
+                panic_pressed = key_panic_down and (
+                    ctrl_pressed if panic_ctrl else True
+                )
+
+            if normal_pressed and not was_pressed_normal:
                 _toggle_lock(menu)
-            was_pressed = pressed
+            was_pressed_normal = normal_pressed
+
+            if panic_pressed and not was_pressed_panic:
+                _trigger_panic_mode(menu)
+            was_pressed_panic = panic_pressed
+
         except Exception:
-            # _toggle_lock already persisted a crash report for its own
-            # failures; catch broadly here so a single bad iteration can't
-            # kill hotkey detection for the rest of the session.
+            # Catch broadly so a single bad iteration can't kill hotkey detection
             pass
         time.sleep(_POLL_INTERVAL_SECONDS)
 
@@ -174,7 +254,9 @@ def register_hotkeys(menu: type[Menu]) -> None:
     thread = threading.Thread(target=_poll_hotkey, args=(menu,), daemon=True)
     thread.start()
     hotkey_name = menu.config.get("hotkey_name", "F9")
+    panic_hotkey_name = menu.config.get("panic_hotkey_name", "Ctrl+F9")
     print(
         f"[HOTKEY] {hotkey_name} — переключение Lock "
         "(высокий бип=заперто, низкий=открыто)"
     )
+    print(f"[HOTKEY] {panic_hotkey_name} — ЭКСТРЕННОЕ СОЛО (ПАНИКА)")

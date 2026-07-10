@@ -123,6 +123,10 @@ class AbstractPacketFilter(ABC):
             ips_enabled,
             ips_pps_threshold,
             ips_ban_duration,
+            auto_lock_on_attack,
+            ips_adaptive_multiplier,
+            ips_adaptive_measurement_seconds,
+            ips_fallback_threshold,
         ) = build_classification_context()
 
         self.process = Process(
@@ -139,6 +143,10 @@ class AbstractPacketFilter(ABC):
                 ips_enabled,
                 ips_pps_threshold,
                 ips_ban_duration,
+                auto_lock_on_attack,
+                ips_adaptive_multiplier,
+                ips_adaptive_measurement_seconds,
+                ips_fallback_threshold,
             ),
             daemon=True,
         )
@@ -196,6 +204,10 @@ class AbstractPacketFilter(ABC):
         ips_enabled: bool,
         ips_pps_threshold: int,
         ips_ban_duration: int,
+        auto_lock_on_attack: bool,
+        ips_adaptive_multiplier: int,
+        ips_adaptive_measurement_seconds: int,
+        ips_fallback_threshold: int,
     ) -> None:
         import time
 
@@ -210,8 +222,14 @@ class AbstractPacketFilter(ABC):
         # rather than recomputed every packet — matters most for a flood,
         # where the same source IP repeats hundreds of times a second.
         classification_cache: dict[str, str] = {}
+
+        current_threshold = ips_fallback_threshold
+        session_start_time = time.monotonic()
+        measured_max_pps = 0
+        adaptive_measured = False
+
         aggregator = (
-            VerboseAggregator(self.mode_label, flood_threshold, verbose_queue)
+            VerboseAggregator(self.mode_label, current_threshold, verbose_queue)
             if verbose_enabled
             else None
         )
@@ -220,7 +238,8 @@ class AbstractPacketFilter(ABC):
         packet_filter = f"udp.DstPort == {target_port} and udp.PayloadLength > 0 and ip"
 
         temp_blacklisted_ips: dict[str, float] = {}
-        packet_rates: dict[str, tuple[float, int]] = {}
+        incoming_rates: dict[str, dict[str, Any]] = {}
+        active_incidents: dict[str, dict[str, Any]] = {}
 
         with contextlib.suppress(KeyboardInterrupt):
             self.queue.send(True)
@@ -228,6 +247,14 @@ class AbstractPacketFilter(ABC):
                 for packet in w:
                     ip = packet.ip.src_addr
                     now = time.monotonic()
+
+                    is_service_size = len(packet.payload) in (HEARTBEAT_SIZES.union(MATCHMAKING_SIZES))
+                    is_friend = (
+                        ip in whitelist_ips
+                        or ip_in_cidr_block_set(ip, whitelist_cidr_blocks)
+                    )
+                    is_lan = self._is_lan_ip(ip)
+                    is_suspicious = not is_service_size and not is_friend and not is_lan
 
                     if ips_enabled and ip in temp_blacklisted_ips:
                         if now < temp_blacklisted_ips[ip]:
@@ -239,40 +266,144 @@ class AbstractPacketFilter(ABC):
                     else:
                         decision, reason = self.is_packet_allowed(packet)
 
-                    if ips_enabled and decision and packet.is_inbound:
-                        is_exempt = (
-                            ip in whitelist_ips
-                            or ip_in_cidr_block_set(ip, whitelist_cidr_blocks)
-                            or self._is_lan_ip(ip)
-                            or find_matching_cidr_block(ip, dynamic_blacklist)
-                            is not None
-                        )
-                        if not is_exempt:
-                            if ip not in packet_rates:
-                                packet_rates[ip] = (now, 1)
-                            else:
-                                window_start, count = packet_rates[ip]
-                                if now - window_start >= 1.0:
-                                    packet_rates[ip] = (now, 1)
-                                else:
-                                    new_count = count + 1
-                                    packet_rates[ip] = (window_start, new_count)
-                                    if new_count >= ips_pps_threshold:
-                                        temp_blacklisted_ips[ip] = (
-                                            now + ips_ban_duration
-                                        )
-                                        decision = False
-                                        reason = f"Flood Detected ({new_count} PPS)"
-                                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                                        log_queue.put(
-                                            (
-                                                timestamp,
-                                                ip,
-                                                "BLOCK",
-                                                len(packet.payload),
-                                                reason,
+                    if packet.is_inbound:
+                        if ip not in incoming_rates:
+                            incoming_rates[ip] = {
+                                "window_start": now,
+                                "count": 1,
+                                "suspicious_count": 1 if is_suspicious else 0,
+                                "passed": 1 if decision else 0,
+                                "blocked": 0 if decision else 1,
+                                "sizes": {len(packet.payload): 1},
+                            }
+                        else:
+                            stats = incoming_rates[ip]
+                            if now - stats["window_start"] >= 1.0:
+                                pps_suspicious = stats["suspicious_count"]
+                                sizes = stats["sizes"]
+                                passed = stats["passed"]
+                                blocked = stats["blocked"]
+
+                                stats["window_start"] = now
+                                stats["count"] = 1
+                                stats["suspicious_count"] = 1 if is_suspicious else 0
+                                stats["passed"] = 1 if decision else 0
+                                stats["blocked"] = 0 if decision else 1
+                                stats["sizes"] = {len(packet.payload): 1}
+
+                                elapsed_time = now - session_start_time
+                                if not adaptive_measured:
+                                    if elapsed_time < ips_adaptive_measurement_seconds:
+                                        # Only measure for non-friend, non-LAN IPs
+                                        is_eligible_for_base = not is_friend and not is_lan
+                                        if is_eligible_for_base:
+                                            measured_max_pps = max(measured_max_pps, pps_suspicious)
+                                    else:
+                                        if measured_max_pps > 0:
+                                            current_threshold = max(5, measured_max_pps) * ips_adaptive_multiplier
+                                            logger.info(
+                                                "Adaptive flood detector calibrated: base PPS = %d, threshold = %d PPS",
+                                                measured_max_pps, current_threshold
                                             )
+                                        else:
+                                            current_threshold = ips_fallback_threshold
+                                            logger.info(
+                                                "Could not measure base PPS (no peer traffic observed). Falling back to fixed threshold = %d PPS",
+                                                current_threshold
+                                            )
+                                        if aggregator is not None:
+                                            aggregator.flood_threshold = current_threshold
+                                        adaptive_measured = True
+
+                                is_exempt_ips = (
+                                    is_friend
+                                    or is_lan
+                                    or find_matching_cidr_block(ip, dynamic_blacklist) is not None
+                                )
+
+                                is_exempt_flood = (
+                                    is_friend
+                                    or is_lan
+                                )
+
+                                if (
+                                    ips_enabled
+                                    and not is_exempt_ips
+                                    and pps_suspicious >= current_threshold
+                                ):
+                                    temp_blacklisted_ips[ip] = now + ips_ban_duration
+
+                                if (
+                                    ips_enabled
+                                    and not is_exempt_flood
+                                    and pps_suspicious >= current_threshold
+                                ):
+                                    if ip not in active_incidents:
+                                        if is_lan:
+                                            ip_class = "LAN"
+                                        elif (
+                                            find_matching_cidr_block(
+                                                ip, dynamic_blacklist
+                                            )
+                                            is not None
+                                        ):
+                                            ip_class = "R_STAR_AZURE"
+                                        elif is_friend:
+                                            ip_class = "WHITELIST"
+                                        else:
+                                            ip_class = "UNKNOWN"
+
+                                        active_incidents[ip] = {
+                                            "ip": ip,
+                                            "class": ip_class,
+                                            "start_timestamp": time.strftime(
+                                                "%Y-%m-%d %H:%M:%S"
+                                            ),
+                                            "start_time_monotonic": now,
+                                            "last_packet_time": now,
+                                            "pps_history": [],
+                                            "size_histogram": {},
+                                            "total_passed": 0,
+                                            "total_blocked": 0,
+                                            "reason": reason
+                                            if reason
+                                            else f"Flood Detected ({pps_suspicious} PPS)",
+                                        }
+                                        if auto_lock_on_attack:
+                                            log_queue.put(("AUTOLOCK", ip, pps_suspicious))
+
+                                if ip in active_incidents:
+                                    inc = active_incidents[ip]
+                                    inc["last_packet_time"] = now
+                                    ts_sec = time.strftime("%H:%M:%S")
+                                    inc["pps_history"].append((ts_sec, pps_suspicious))
+                                    inc["total_passed"] += passed
+                                    inc["total_blocked"] += blocked
+                                    for sz, sz_cnt in sizes.items():
+                                        inc["size_histogram"][sz] = (
+                                            inc["size_histogram"].get(sz, 0) + sz_cnt
                                         )
+                            else:
+                                stats["count"] += 1
+                                if is_suspicious:
+                                    stats["suspicious_count"] += 1
+                                if decision:
+                                    stats["passed"] += 1
+                                else:
+                                    stats["blocked"] += 1
+                                sz_len = len(packet.payload)
+                                stats["sizes"][sz_len] = (
+                                    stats["sizes"].get(sz_len, 0) + 1
+                                )
+
+                    completed_ips = []
+                    for active_ip, inc in active_incidents.items():
+                        if now - inc["last_packet_time"] > 3.0:
+                            completed_ips.append(active_ip)
+                    for active_ip in completed_ips:
+                        inc_data = active_incidents.pop(active_ip)
+                        inc_data["end_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                        log_queue.put(("INCIDENT", inc_data))
 
                     if decision:
                         w.send(packet)
@@ -325,7 +456,12 @@ class AbstractPacketFilter(ABC):
                             cls,
                             decision,
                             canonical_reason(cls, decision, reason),
+                            is_suspicious,
                         )
+
+        for active_ip, inc in active_incidents.items():
+            inc["end_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_queue.put(("INCIDENT", inc))
 
     @staticmethod
     def construct_debug_packet_info(
@@ -439,6 +575,31 @@ class PrivateSession(AbstractPacketFilter):
         # 6. Unlocked state: allow everyone else
         self.known_allowed.add(ip)
         return True, "Allowed"
+
+
+class EmergencySoloSession(AbstractPacketFilter):
+    """
+    Emergency solo session that blocks all P2P traffic,
+    allowing only Rockstar services (heartbeats and matchmaking sizes).
+    Does NOT allow whitelisted players.
+    """
+
+    def __init__(
+        self,
+        priority: int,
+        connection: PipeConnection,
+        session_info: Optional[SessionInfo] = None,
+        debug: bool = False,
+    ):
+        super().__init__(set(), priority, connection, session_info, debug)
+
+    def is_packet_allowed(self, packet: pydivert.Packet) -> tuple[bool, str]:
+        size = len(packet.payload)
+        if size in HEARTBEAT_SIZES:
+            return True, "Heartbeat"
+        if size in MATCHMAKING_SIZES:
+            return True, "Matchmaking (Panic)"
+        return False, "Emergency Solo Active"
 
 
 # TODO: Convert this to AbstractPacketFilter

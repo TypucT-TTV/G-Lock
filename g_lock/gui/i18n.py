@@ -42,9 +42,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_dur": "Duration: {value} ms",
         "settings_vol": "Volume: {value}%",
         "settings_btn_test": "Test",
+        "settings_security_sec": "Security Options",
+        "settings_auto_lock": "Auto-Lock on attack",
         "status_open": "Open",
         "status_open_blacklist": "Open (Blacklist Active)",
         "status_locked": "LOCKED",
+        "status_panic": "EMERGENCY SOLO (PANIC)",
         "status_active": "Active: {name}",
         "name_solo_session": "Solo Session",
         "name_whitelisted_session": "Whitelisted Session",
@@ -127,6 +130,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_add": "Add",
         "btn_edit": "Edit",
         "btn_delete": "Delete",
+        "btn_clear": "Clear",
         "btn_save": "Save",
         "form_title_add": "Add entry",
         "form_title_edit": "Edit entry",
@@ -142,6 +146,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "log_menu_add_blacklist": "Add to Blacklist",
         "dialog_enter_name_title": "Enter name",
         "dialog_enter_name_msg": "Enter name for IP {ip}:",
+        "error_ip_is_rockstar_relay": "This is a Rockstar relay, not a player. Adding it will open a loophole for tunnels.",
+        "warning_title": "Warning",
+        "settings_adaptive_multiplier": "Adaptive flood multiplier",
+        "settings_fallback_threshold": "Fallback PPS threshold",
     },
     LANG_RU: {
         "menu_solo_session": "Solo-сессия",
@@ -172,9 +180,12 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_dur": "Длительность: {value} мс",
         "settings_vol": "Громкость: {value}%",
         "settings_btn_test": "Тест",
+        "settings_security_sec": "Настройки защиты",
+        "settings_auto_lock": "Авто-блокировка при атаке",
         "status_open": "Открыто",
         "status_open_blacklist": "Открыто (ЧС активен)",
         "status_locked": "ЗАПЕРТО",
+        "status_panic": "ЭКСТРЕННОЕ СОЛО (ПАНИКА)",
         "status_active": "Активно: {name}",
         "name_solo_session": "Solo-сессия",
         "name_whitelisted_session": "Сессия по вайтлисту",
@@ -256,6 +267,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_add": "Добавить",
         "btn_edit": "Изменить",
         "btn_delete": "Удалить",
+        "btn_clear": "Очистить",
         "btn_save": "Сохранить",
         "form_title_add": "Добавить запись",
         "form_title_edit": "Изменить запись",
@@ -271,6 +283,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "log_menu_add_blacklist": "В черный список (Blacklist)",
         "dialog_enter_name_title": "Добавить имя",
         "dialog_enter_name_msg": "Введите имя для IP {ip}:",
+        "error_ip_is_rockstar_relay": "Это релей Rockstar, а не игрок. Добавление откроет дыру для туннелей.",
+        "warning_title": "Предупреждение",
+        "settings_adaptive_multiplier": "Множитель адаптивного флуда",
+        "settings_fallback_threshold": "Резервный порог PPS",
     },
 }
 
@@ -280,6 +296,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 FILTER_CLASS_NAME_KEY = {
     "SoloSession": "name_solo_session",
     "PrivateSession": "status_open",
+    "EmergencySoloSession": "status_panic",
 }
 
 _current_language = LANG_RU

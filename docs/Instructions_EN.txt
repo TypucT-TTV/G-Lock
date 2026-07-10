@@ -61,29 +61,45 @@ session type was already running (e.g. Solo), F9 will REPLACE it
 with Lock. Pressing F9 again returns you to "Open", not back to whatever
 was running before.
 
-CONNECTION LOG (WHO JOINED, AND WHEN)
+ADAPTIVE FLOOD DETECTOR (IPS)
+-----------------------------
+G-Lock includes an intelligent system to detect network flood attacks:
+  * For the first 45 seconds after session startup, G-Lock measures normal background traffic patterns from peers (excluding whitelisted friends, service sizes, or LAN).
+  * After 45 seconds, the dynamic threshold is calculated: the measured max PPS multiplied by an adaptive flood multiplier (default: 5). These multipliers and fallback limits are configurable in the "Settings" menu.
+  * If a peer exceeds this threshold with suspicious packets, they are banned for a cooldown period (default: 60 seconds) to prevent session lags.
+  * Rockstar/Azure relays are exempt from IPS bans to avoid cloud save/sync errors, but can still trigger auto-lock actions if the corresponding checkbox in Settings is active.
+
 CONNECTION LOG & INTERACTIVE PANEL
 ----------------------------------------
 G-Lock keeps a passive log of all connections and displays it in real-time in the right panel of the main window.
 
+Before each row, two action buttons are displayed:
+  * `🟢` (WL) — instantly add the IP address to the Whitelist.
+  * `🔴` (BL) — instantly add the IP address to the Blacklist.
+
 The panel features intuitive color coding:
-  * Green — friends joining directly from residential IPs.
-  * Blue  — connections passing through Rockstar/Azure relays (typically modders, hidden IPs, or closed NAT).
-  * Red   — blocked packet attempts.
-  * Grey  — service/passive packets.
+  * Yellow — whitelisted friends (to immediately see when whitelisted players join).
+  * Green  — regular allowed direct P2P player connections.
+  * Blue   — connections passing through Rockstar/Azure relays (tagged as `[RELAY R*]`).
+  * Red    — blocked packet attempts.
+  * Grey   — service/passive packets.
 
 Quick log actions (right-click a row in the log table):
-  * "Copy IP" — copy the player's IP address.
-  * "Add to Whitelist" / "Add to Blacklist" — quickly add the IP to your lists with a name. The protection rules will reload automatically on the fly without restarting the program.
+  * "Copy IP" — copy the player's IP address (the relay tag is stripped automatically).
+  * "Add to Whitelist" / "Add to Blacklist" — quickly add the IP to your lists on the fly without dialog confirmations or name prompts. The rules will reload automatically.
 
 Logs are saved as UTF-8 files in the "logs" folder next to the app, keeping only the 10 most recent days.
 
 EDIT LISTS (WHITELIST / BLACKLIST)
 ------------------------------------
 The "Edit lists" button opens a window with Whitelist / Blacklist tabs.
-You can manage entries manually (Add, Edit, Delete).
-G-Lock supports adding both individual IPs and entire subnet ranges in CIDR format (e.g., 52.139.169.0/24), which is convenient for blocking whole Rockstar/Azure relay ranges.
-Config files are stored in UTF-8, allowing names to contain Cyrillic/non-English characters.
+You can manage entries manually:
+  * Add    — add new IP.
+  * Edit   — edit selected IP.
+  * Delete — delete selected IP.
+  * Clear  — clear the entire list (very convenient since player IPs change frequently).
+Lists contain only IP addresses and subnets in CIDR format (e.g. 52.139.168.0/24). Names are removed to support instant one-click additions.
+Any list modifications immediately trigger a background session reload.
 
 LANGUAGE SWITCHER
 ------------------

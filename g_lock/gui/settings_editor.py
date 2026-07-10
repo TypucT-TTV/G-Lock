@@ -33,7 +33,7 @@ def open_settings_editor(root: tk.Tk) -> None:
     top.configure(bg=theme.BG)
     top.transient(root)
     # Taller window to fit all vertical controls comfortably
-    top.geometry("480x670")
+    top.geometry("480x820")
     top.resizable(False, False)
     top.grab_set()
 
@@ -121,7 +121,7 @@ def open_settings_editor(root: tk.Tk) -> None:
         relief="solid",
         highlightbackground=theme.BORDER_DIM,
     )
-    sound_frame.pack(fill="both", expand=True, padx=15, pady=10)
+    sound_frame.pack(fill="x", padx=15, pady=10)
 
     # Enable checkbutton
     chk = tk.Checkbutton(
@@ -141,7 +141,7 @@ def open_settings_editor(root: tk.Tk) -> None:
 
     # Controls container
     ctrls_frame = tk.Frame(sound_frame, bg=theme.BG)
-    ctrls_frame.pack(fill="both", expand=True)
+    ctrls_frame.pack(fill="x", expand=True)
 
     # Helper to build a clean vertical group with grid
     def build_sound_group(
@@ -303,6 +303,93 @@ def open_settings_editor(root: tk.Tk) -> None:
     chk.config(command=toggle_sound_controls)
     toggle_sound_controls()  # Init state
 
+    # Layout: Security section
+    security_frame = tk.LabelFrame(
+        top,
+        text=t("settings_security_sec"),
+        bg=theme.BG,
+        fg=theme.NEON_CYAN,
+        font=theme.FONT_HEADING,
+        padx=15,
+        pady=10,
+        bd=1,
+        relief="solid",
+        highlightbackground=theme.BORDER_DIM,
+    )
+    security_frame.pack(fill="x", padx=15, pady=10)
+
+    auto_lock_var = tk.BooleanVar(value=config.get("auto_lock_on_attack", False))
+    auto_lock_chk = tk.Checkbutton(
+        security_frame,
+        text=t("settings_auto_lock"),
+        variable=auto_lock_var,
+        bg=theme.BG,
+        fg=theme.TEXT,
+        selectcolor=theme.PANEL,
+        activebackground=theme.BG,
+        activeforeground=theme.TEXT,
+        font=theme.FONT_UI,
+        bd=0,
+        highlightthickness=0,
+    )
+    auto_lock_chk.pack(anchor="w")
+
+    # Slider for multiplier
+    multiplier_label = tk.Label(
+        security_frame,
+        text=t("settings_adaptive_multiplier") + f": {config.get('ips_adaptive_multiplier', 5)}",
+        bg=theme.BG,
+        fg=theme.TEXT,
+        font=theme.FONT_UI,
+        anchor="w",
+    )
+    multiplier_label.pack(anchor="w", pady=(10, 2))
+
+    multiplier_scale = tk.Scale(
+        security_frame,
+        from_=2,
+        to=10,
+        resolution=1,
+        orient="horizontal",
+        showvalue=False,
+        bg=theme.BG,
+        fg=theme.TEXT,
+        highlightthickness=0,
+        troughcolor=theme.PANEL,
+        activebackground=theme.NEON_CYAN,
+        command=lambda val: multiplier_label.config(text=t("settings_adaptive_multiplier") + f": {val}"),
+    )
+    multiplier_scale.set(config.get("ips_adaptive_multiplier", 5))
+    multiplier_scale.pack(fill="x", pady=(0, 10))
+
+    # Slider for fallback threshold
+    fallback_label = tk.Label(
+        security_frame,
+        text=t("settings_fallback_threshold") + f": {config.get('ips_fallback_threshold', 250)} PPS",
+        bg=theme.BG,
+        fg=theme.TEXT,
+        font=theme.FONT_UI,
+        anchor="w",
+    )
+    fallback_label.pack(anchor="w", pady=(5, 2))
+
+    fallback_scale = tk.Scale(
+        security_frame,
+        from_=50,
+        to=500,
+        resolution=10,
+        orient="horizontal",
+        showvalue=False,
+        bg=theme.BG,
+        fg=theme.TEXT,
+        highlightthickness=0,
+        troughcolor=theme.PANEL,
+        activebackground=theme.NEON_CYAN,
+        command=lambda val: fallback_label.config(text=t("settings_fallback_threshold") + f": {val} PPS"),
+    )
+    fallback_scale.set(config.get("ips_fallback_threshold", 250))
+    fallback_scale.pack(fill="x", pady=(0, 10))
+
     # Save / Cancel Buttons
     action_frame = tk.Frame(top, bg=theme.BG)
     action_frame.pack(pady=15)
@@ -317,6 +404,9 @@ def open_settings_editor(root: tk.Tk) -> None:
         config.data["sound_unlock_freq"] = int(unlock_freq_scale.get())
         config.data["sound_unlock_dur"] = int(unlock_dur_scale.get())
         config.data["sound_unlock_vol"] = int(unlock_vol_scale.get())
+        config.data["auto_lock_on_attack"] = auto_lock_var.get()
+        config.data["ips_adaptive_multiplier"] = int(multiplier_scale.get())
+        config.data["ips_fallback_threshold"] = int(fallback_scale.get())
         config.save()
         top.destroy()
 

@@ -10,7 +10,6 @@ from config.globallist import Blacklist, GlobalList, Whitelist
 from gui import theme, widgets
 from gui.i18n import t
 from validator.ip import IPValidator
-from validator.name import NameValidator
 
 
 def open_list_editor(root: tk.Tk) -> None:
@@ -51,12 +50,10 @@ class _ListTab:
         self.root = root
         self.list_type = list_type
 
-        columns = ("name", "ip")
+        columns = ("ip",)
         self.tree = ttk.Treeview(parent, columns=columns, show="headings", height=10)
-        self.tree.heading("name", text=t("col_name"))
         self.tree.heading("ip", text=t("col_ip"))
-        self.tree.column("name", width=200)
-        self.tree.column("ip", width=200)
+        self.tree.column("ip", width=350, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=10, pady=(10, 6))
 
         button_row = tk.Frame(parent, bg=theme.BG)
@@ -73,6 +70,12 @@ class _ListTab:
             command=self._on_delete,
             accent=theme.NEON_MAGENTA,
         ).pack(side="left", padx=4)
+        widgets.NeonButton(
+            button_row,
+            t("btn_clear"),
+            command=self._on_clear,
+            accent=theme.NEON_MAGENTA,
+        ).pack(side="left", padx=4)
 
         self.refresh()
 
@@ -80,7 +83,7 @@ class _ListTab:
         self.tree.delete(*self.tree.get_children())
         global_list = self.list_type()
         for ip, name in global_list:
-            self.tree.insert("", "end", iid=ip, values=(name, ip))
+            self.tree.insert("", "end", iid=ip, values=(ip,))
 
     def _selected_ip(self) -> Optional[str]:
         selection = self.tree.selection()
@@ -88,17 +91,15 @@ class _ListTab:
 
     def _on_add(self) -> None:
         self._open_form(
-            title=t("form_title_add"), initial_name="", initial_ip="", existing_ip=None
+            title=t("form_title_add"), initial_ip="", existing_ip=None
         )
 
     def _on_edit(self) -> None:
         ip = self._selected_ip()
         if ip is None:
             return
-        global_list = self.list_type()
-        name = global_list.get(ip, "")
         self._open_form(
-            title=t("form_title_edit"), initial_name=name, initial_ip=ip, existing_ip=ip
+            title=t("form_title_edit"), initial_ip=ip, existing_ip=ip
         )
 
     def _on_delete(self) -> None:
@@ -109,9 +110,28 @@ class _ListTab:
         global_list.remove(ip)
         global_list.save()
         self.refresh()
+        self._reload_session_on_change()
+
+    def _on_clear(self) -> None:
+        global_list = self.list_type()
+        global_list.data.clear()
+        global_list.save()
+        self.refresh()
+        self._reload_session_on_change()
+
+    def _reload_session_on_change(self) -> None:
+        from menu.menu import Menu
+        import threading
+        if Menu.context.active_session_name() == "PrivateSession":
+            is_locked = Menu.context.is_locked()
+            threading.Thread(
+                target=Menu.launch_private_session,
+                args=(is_locked,),
+                daemon=True,
+            ).start()
 
     def _open_form(
-        self, title: str, initial_name: str, initial_ip: str, existing_ip: Optional[str]
+        self, title: str, initial_ip: str, existing_ip: Optional[str]
     ) -> None:
         form = tk.Toplevel(self.root)
         form.title(title)
@@ -129,41 +149,32 @@ class _ListTab:
             "highlightcolor": theme.NEON_CYAN,
         }
 
-        tk.Label(form, text=t("col_name"), bg=theme.BG, fg=theme.TEXT).grid(
-            row=0, column=0, sticky="w", padx=10, pady=(14, 2)
-        )
-        name_entry = tk.Entry(form, width=28, **entry_kwargs)  # type: ignore[arg-type]
-        name_entry.insert(0, initial_name)
-        name_entry.grid(row=1, column=0, padx=10, pady=(0, 10), ipady=3)
-
         tk.Label(form, text=t("col_ip"), bg=theme.BG, fg=theme.TEXT).grid(
-            row=2, column=0, sticky="w", padx=10
+            row=0, column=0, sticky="w", padx=10, pady=(14, 2)
         )
         ip_entry = tk.Entry(form, width=28, **entry_kwargs)  # type: ignore[arg-type]
         ip_entry.insert(0, initial_ip)
-        ip_entry.grid(row=3, column=0, padx=10, pady=(0, 10), ipady=3)
+        ip_entry.grid(row=1, column=0, padx=10, pady=(0, 10), ipady=3)
 
         error_label = tk.Label(
             form, text="", bg=theme.BG, fg=theme.DANGER, wraplength=260, justify="left"
         )
-        error_label.grid(row=4, column=0, sticky="w", padx=10)
+        error_label.grid(row=2, column=0, sticky="w", padx=10)
 
         def _save() -> None:
-            name = name_entry.get().strip()
             ip = ip_entry.get().strip()
             global_list: GlobalList = self.list_type()
-
-            if name != initial_name or existing_ip is None:
-                try:
-                    name = NameValidator.validate_get(name, global_list)
-                except ValidationError:
-                    error_label.configure(text=t("error_name_duplicate"))
-                    return
 
             try:
                 ip = IPValidator.validate_get(ip)
             except ValidationError:
                 error_label.configure(text=t("error_ip_invalid"))
+                return
+
+            from menu.menu import Menu
+            from util.network import ip_in_cidr_block_set
+            if self.list_type is Whitelist and ip_in_cidr_block_set(ip, Menu.dynamic_blacklist):
+                error_label.configure(text=t("error_ip_is_rockstar_relay"))
                 return
 
             if ip != existing_ip and ip in global_list:
@@ -172,13 +183,14 @@ class _ListTab:
 
             if existing_ip is not None:
                 global_list.remove(existing_ip)
-            global_list.add(ip, name)
+            global_list.add(ip, "")
             global_list.save()
             self.refresh()
+            self._reload_session_on_change()
             form.destroy()
 
         button_row = tk.Frame(form, bg=theme.BG)
-        button_row.grid(row=5, column=0, pady=(6, 14))
+        button_row.grid(row=3, column=0, pady=(6, 14))
         widgets.NeonButton(button_row, t("btn_save"), command=_save).pack(
             side="left", padx=6
         )

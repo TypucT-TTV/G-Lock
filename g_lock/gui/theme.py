@@ -24,6 +24,7 @@ NEON_MAGENTA = "#ff3df0"
 # Status colors (session lock indicator)
 SUCCESS = "#2ecc71"
 DANGER = "#ff3b5c"
+WARNING = "#f1c40f"
 
 # Text
 TEXT = "#e8f2ff"

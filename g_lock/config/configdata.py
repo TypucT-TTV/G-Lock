@@ -31,6 +31,13 @@ class ConfigDataType(TypedDict, total=False):
     ips_enabled: bool
     ips_pps_threshold: int
     ips_ban_duration: int
+    auto_lock_on_attack: bool
+    panic_hotkey_vk: int
+    panic_hotkey_ctrl: bool
+    panic_hotkey_name: str
+    ips_adaptive_multiplier: int
+    ips_adaptive_measurement_seconds: int
+    ips_fallback_threshold: int
 
 
 class ConfigData(metaclass=Singleton):
@@ -57,6 +64,13 @@ class ConfigData(metaclass=Singleton):
                 "ips_enabled": True,
                 "ips_pps_threshold": 150,
                 "ips_ban_duration": 60,
+                "auto_lock_on_attack": False,
+                "panic_hotkey_vk": 0x78,  # VK_F9
+                "panic_hotkey_ctrl": True,
+                "panic_hotkey_name": "Ctrl+F9",
+                "ips_adaptive_multiplier": 5,
+                "ips_adaptive_measurement_seconds": 45,
+                "ips_fallback_threshold": 250,
             }
             for k, v in defaults.items():
                 if k not in self.data:
@@ -84,6 +98,13 @@ class ConfigData(metaclass=Singleton):
                 "ips_enabled": True,
                 "ips_pps_threshold": 150,
                 "ips_ban_duration": 60,
+                "auto_lock_on_attack": False,
+                "panic_hotkey_vk": 0x78,  # VK_F9
+                "panic_hotkey_ctrl": True,
+                "panic_hotkey_name": "Ctrl+F9",
+                "ips_adaptive_multiplier": 5,
+                "ips_adaptive_measurement_seconds": 45,
+                "ips_fallback_threshold": 250,
             }
             self.save()
 
