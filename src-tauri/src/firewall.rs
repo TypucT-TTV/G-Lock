@@ -312,6 +312,124 @@ fn parse_ipv4_udp(data: &[u8]) -> Option<ParsedPacket> {
     Some(ParsedPacket { src_ip, payload_len })
 }
 
+#[repr(C)]
+#[allow(non_snake_case)]
+struct PROCESSENTRY32W {
+    dwSize: u32,
+    cntUsage: u32,
+    th32ProcessID: u32,
+    th32DefaultHeapID: usize,
+    th32ModuleID: u32,
+    cntThreads: u32,
+    th32ParentProcessID: u32,
+    pcPriClassBase: i32,
+    dwFlags: u32,
+    szExeFile: [u16; 260],
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32) -> isize;
+    fn Process32FirstW(hSnapshot: isize, lppe: *mut PROCESSENTRY32W) -> i32;
+    fn Process32NextW(hSnapshot: isize, lppe: *mut PROCESSENTRY32W) -> i32;
+    fn CloseHandle(hObject: isize) -> i32;
+}
+
+#[link(name = "iphlpapi")]
+extern "system" {
+    fn GetExtendedUdpTable(
+        pUdpTable: *mut u8,
+        pdwSize: *mut u32,
+        bOrder: i32,
+        ulAf: u32,
+        TableClass: u32,
+        Reserved: u32,
+    ) -> u32;
+}
+
+const AF_INET: u32 = 2;
+const UDP_TABLE_OWNER_PID: u32 = 1;
+
+fn get_pid_by_name(name: &str) -> Option<u32> {
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(2, 0); // TH32CS_SNAPPROCESS = 2
+        if snapshot == -1 {
+            return None;
+        }
+
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                let exe_name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if exe_name.eq_ignore_ascii_case(name) {
+                    CloseHandle(snapshot);
+                    return Some(entry.th32ProcessID);
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+        None
+    }
+}
+
+fn get_udp_ports_for_pid(pid: u32) -> Vec<u16> {
+    unsafe {
+        let mut size: u32 = 0;
+        GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 0, AF_INET, UDP_TABLE_OWNER_PID, 0);
+        if size == 0 {
+            return Vec::new();
+        }
+
+        let mut buf = vec![0u8; size as usize];
+        let res = GetExtendedUdpTable(buf.as_mut_ptr(), &mut size, 0, AF_INET, UDP_TABLE_OWNER_PID, 0);
+        if res != 0 {
+            return Vec::new();
+        }
+
+        if buf.len() < 4 {
+            return Vec::new();
+        }
+        let num_entries = u32::from_ne_bytes(buf[0..4].try_into().unwrap()) as usize;
+        let mut ports = Vec::new();
+        let mut offset = 4;
+        for _ in 0..num_entries {
+            if offset + 12 > buf.len() {
+                break;
+            }
+            let row_port_bytes = &buf[offset + 4..offset + 8];
+            let row_pid_bytes = &buf[offset + 8..offset + 12];
+            let row_port_dword = u32::from_ne_bytes(row_port_bytes.try_into().unwrap());
+            let row_pid = u32::from_ne_bytes(row_pid_bytes.try_into().unwrap());
+
+            if row_pid == pid {
+                let port = u16::from_be((row_port_dword & 0xFFFF) as u16);
+                if port > 0 {
+                    ports.push(port);
+                }
+            }
+            offset += 12;
+        }
+        ports
+    }
+}
+
+pub fn get_gta_udp_port(default_port: u16) -> u16 {
+    if let Some(pid) = get_pid_by_name("GTA5.exe") {
+        let ports = get_udp_ports_for_pid(pid);
+        if !ports.is_empty() {
+            println!("Detected GTA5.exe running with PID {} on UDP port {}", pid, ports[0]);
+            return ports[0];
+        }
+    }
+    default_port
+}
+
 #[derive(Default)]
 struct RateStats {
     window_start: Option<Instant>,
@@ -333,9 +451,10 @@ pub fn start_firewall(app: AppHandle) {
     load_dynamic_blacklist(&app);
 
     std::thread::spawn(move || {
-        let filter = "udp.DstPort == 6672 and udp.PayloadLength > 0 and ip";
+        let port = get_gta_udp_port(6672);
+        let filter = format!("udp.DstPort == {} and udp.PayloadLength > 0 and ip", port);
         
-        let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(filter, 0, WinDivertFlags::default()) {
+        let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(&filter, 0, WinDivertFlags::default()) {
             Ok(handle) => handle,
             Err(e) => {
                 eprintln!("Failed to open WinDivert handle: {:?}", e);
@@ -429,10 +548,13 @@ pub fn start_firewall(app: AppHandle) {
                 }
             }
 
-            // Always allow Heartbeats
+            // Always allow Heartbeats, and also allow Matchmaking in Solo session
             if HEARTBEAT_SIZES.contains(&payload_len) {
                 decision = true;
                 reason = "Service/Heartbeat".to_string();
+            } else if MATCHMAKING_SIZES.contains(&payload_len) && state.active_session == "Solo" {
+                decision = true;
+                reason = "Service/Matchmaking (Solo)".to_string();
             }
 
             // Update Rate Stats

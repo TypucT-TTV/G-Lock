@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "g-lock-tauri"
-version = "2.0.11"
+version = "2.0.12"
 dependencies = [
  "chrono",
  "ipnet",
