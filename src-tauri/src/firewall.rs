@@ -620,7 +620,9 @@ pub fn start_firewall(app: AppHandle) {
             let parsed = match parse_ipv4_udp(&packet.data) {
                 Some(p) => p,
                 None => {
-                    let _ = w.send(&packet);
+                    if let Err(e) = w.send(&packet) {
+                        log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (unparsed): {:?}", e));
+                    }
                     continue;
                 }
             };
@@ -785,7 +787,9 @@ pub fn start_firewall(app: AppHandle) {
             }
 
             if decision {
-                let _ = w.send(&packet);
+                if let Err(e) = w.send(&packet) {
+                    log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (allowed): {:?}", e));
+                }
             }
         }
 
