@@ -797,24 +797,16 @@ pub fn start_firewall(app: AppHandle) {
 pub fn stop_firewall_worker() {
     *STOP_FLAG.write() = true;
 
-    // Stop and delete the WinDivert driver service to force the blocking recv() call to abort
+    // Stop the WinDivert driver service to force the blocking recv() call to abort
     // and release the files. Since the app is running as Administrator, this will succeed.
     use std::os::windows::process::CommandExt;
     let _ = std::process::Command::new("sc.exe")
         .args(&["stop", "WinDivert1.3"])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output();
-    let _ = std::process::Command::new("sc.exe")
-        .args(&["delete", "WinDivert1.3"])
-        .creation_flags(0x08000000)
-        .output();
 
     let _ = std::process::Command::new("sc.exe")
         .args(&["stop", "WinDivert1.4"])
-        .creation_flags(0x08000000)
-        .output();
-    let _ = std::process::Command::new("sc.exe")
-        .args(&["delete", "WinDivert1.4"])
         .creation_flags(0x08000000)
         .output();
 }
