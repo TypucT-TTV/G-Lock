@@ -248,10 +248,11 @@ class AbstractPacketFilter(ABC):
                     ip = packet.ip.src_addr
                     now = time.monotonic()
 
-                    is_service_size = len(packet.payload) in (HEARTBEAT_SIZES.union(MATCHMAKING_SIZES))
-                    is_friend = (
-                        ip in whitelist_ips
-                        or ip_in_cidr_block_set(ip, whitelist_cidr_blocks)
+                    is_service_size = len(packet.payload) in (
+                        HEARTBEAT_SIZES.union(MATCHMAKING_SIZES)
+                    )
+                    is_friend = ip in whitelist_ips or ip_in_cidr_block_set(
+                        ip, whitelist_cidr_blocks
                     )
                     is_lan = self._is_lan_ip(ip)
                     is_suspicious = not is_service_size and not is_friend and not is_lan
@@ -295,36 +296,44 @@ class AbstractPacketFilter(ABC):
                                 if not adaptive_measured:
                                     if elapsed_time < ips_adaptive_measurement_seconds:
                                         # Only measure for non-friend, non-LAN IPs
-                                        is_eligible_for_base = not is_friend and not is_lan
+                                        is_eligible_for_base = (
+                                            not is_friend and not is_lan
+                                        )
                                         if is_eligible_for_base:
-                                            measured_max_pps = max(measured_max_pps, pps_suspicious)
+                                            measured_max_pps = max(
+                                                measured_max_pps, pps_suspicious
+                                            )
                                     else:
                                         if measured_max_pps > 0:
-                                            current_threshold = max(5, measured_max_pps) * ips_adaptive_multiplier
+                                            current_threshold = (
+                                                max(5, measured_max_pps)
+                                                * ips_adaptive_multiplier
+                                            )
                                             logger.info(
                                                 "Adaptive flood detector calibrated: base PPS = %d, threshold = %d PPS",
-                                                measured_max_pps, current_threshold
+                                                measured_max_pps,
+                                                current_threshold,
                                             )
                                         else:
                                             current_threshold = ips_fallback_threshold
                                             logger.info(
                                                 "Could not measure base PPS (no peer traffic observed). Falling back to fixed threshold = %d PPS",
-                                                current_threshold
+                                                current_threshold,
                                             )
                                         if aggregator is not None:
-                                            aggregator.flood_threshold = current_threshold
+                                            aggregator.flood_threshold = (
+                                                current_threshold
+                                            )
                                         adaptive_measured = True
 
                                 is_exempt_ips = (
                                     is_friend
                                     or is_lan
-                                    or find_matching_cidr_block(ip, dynamic_blacklist) is not None
+                                    or find_matching_cidr_block(ip, dynamic_blacklist)
+                                    is not None
                                 )
 
-                                is_exempt_flood = (
-                                    is_friend
-                                    or is_lan
-                                )
+                                is_exempt_flood = is_friend or is_lan
 
                                 if (
                                     ips_enabled
@@ -370,7 +379,9 @@ class AbstractPacketFilter(ABC):
                                             else f"Flood Detected ({pps_suspicious} PPS)",
                                         }
                                         if auto_lock_on_attack:
-                                            log_queue.put(("AUTOLOCK", ip, pps_suspicious))
+                                            log_queue.put(
+                                                ("AUTOLOCK", ip, pps_suspicious)
+                                            )
 
                                 if ip in active_incidents:
                                     inc = active_incidents[ip]

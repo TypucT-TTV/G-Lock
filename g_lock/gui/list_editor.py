@@ -90,17 +90,13 @@ class _ListTab:
         return selection[0] if selection else None
 
     def _on_add(self) -> None:
-        self._open_form(
-            title=t("form_title_add"), initial_ip="", existing_ip=None
-        )
+        self._open_form(title=t("form_title_add"), initial_ip="", existing_ip=None)
 
     def _on_edit(self) -> None:
         ip = self._selected_ip()
         if ip is None:
             return
-        self._open_form(
-            title=t("form_title_edit"), initial_ip=ip, existing_ip=ip
-        )
+        self._open_form(title=t("form_title_edit"), initial_ip=ip, existing_ip=ip)
 
     def _on_delete(self) -> None:
         ip = self._selected_ip()
@@ -120,8 +116,10 @@ class _ListTab:
         self._reload_session_on_change()
 
     def _reload_session_on_change(self) -> None:
-        from menu.menu import Menu
         import threading
+
+        from menu.menu import Menu
+
         if Menu.context.active_session_name() == "PrivateSession":
             is_locked = Menu.context.is_locked()
             threading.Thread(
@@ -173,7 +171,10 @@ class _ListTab:
 
             from menu.menu import Menu
             from util.network import ip_in_cidr_block_set
-            if self.list_type is Whitelist and ip_in_cidr_block_set(ip, Menu.dynamic_blacklist):
+
+            if self.list_type is Whitelist and ip_in_cidr_block_set(
+                ip, Menu.dynamic_blacklist
+            ):
                 error_label.configure(text=t("error_ip_is_rockstar_relay"))
                 return
 

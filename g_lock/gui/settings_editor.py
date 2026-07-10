@@ -337,7 +337,8 @@ def open_settings_editor(root: tk.Tk) -> None:
     # Slider for multiplier
     multiplier_label = tk.Label(
         security_frame,
-        text=t("settings_adaptive_multiplier") + f": {config.get('ips_adaptive_multiplier', 5)}",
+        text=t("settings_adaptive_multiplier")
+        + f": {config.get('ips_adaptive_multiplier', 5)}",
         bg=theme.BG,
         fg=theme.TEXT,
         font=theme.FONT_UI,
@@ -357,7 +358,9 @@ def open_settings_editor(root: tk.Tk) -> None:
         highlightthickness=0,
         troughcolor=theme.PANEL,
         activebackground=theme.NEON_CYAN,
-        command=lambda val: multiplier_label.config(text=t("settings_adaptive_multiplier") + f": {val}"),
+        command=lambda val: multiplier_label.config(
+            text=t("settings_adaptive_multiplier") + f": {val}"
+        ),
     )
     multiplier_scale.set(config.get("ips_adaptive_multiplier", 5))
     multiplier_scale.pack(fill="x", pady=(0, 10))
@@ -365,7 +368,8 @@ def open_settings_editor(root: tk.Tk) -> None:
     # Slider for fallback threshold
     fallback_label = tk.Label(
         security_frame,
-        text=t("settings_fallback_threshold") + f": {config.get('ips_fallback_threshold', 250)} PPS",
+        text=t("settings_fallback_threshold")
+        + f": {config.get('ips_fallback_threshold', 250)} PPS",
         bg=theme.BG,
         fg=theme.TEXT,
         font=theme.FONT_UI,
@@ -385,7 +389,9 @@ def open_settings_editor(root: tk.Tk) -> None:
         highlightthickness=0,
         troughcolor=theme.PANEL,
         activebackground=theme.NEON_CYAN,
-        command=lambda val: fallback_label.config(text=t("settings_fallback_threshold") + f": {val} PPS"),
+        command=lambda val: fallback_label.config(
+            text=t("settings_fallback_threshold") + f": {val} PPS"
+        ),
     )
     fallback_scale.set(config.get("ips_fallback_threshold", 250))
     fallback_scale.pack(fill="x", pady=(0, 10))

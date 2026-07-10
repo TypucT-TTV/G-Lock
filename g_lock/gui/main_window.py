@@ -376,8 +376,20 @@ class MainWindow:
             self.tree.heading("ip", text=t("col_ip"))
             self.tree.heading("detail", text=t("col_detail"))
 
-            self.tree.column("wl", width=max(25, round(30 * scale)), minwidth=25, stretch=False, anchor="center")
-            self.tree.column("bl", width=max(25, round(30 * scale)), minwidth=25, stretch=False, anchor="center")
+            self.tree.column(
+                "wl",
+                width=max(25, round(30 * scale)),
+                minwidth=25,
+                stretch=False,
+                anchor="center",
+            )
+            self.tree.column(
+                "bl",
+                width=max(25, round(30 * scale)),
+                minwidth=25,
+                stretch=False,
+                anchor="center",
+            )
 
             saved_widths = self.menu.config.get("column_widths") or {}
             time_w = saved_widths.get("time", max(55, round(75 * scale)))
@@ -795,6 +807,7 @@ class MainWindow:
                 self.menu.launch_private_session(locked=True)
 
                 from network.verboselog import write_marker
+
                 write_marker(f"SESSION AUTO-LOCKED due to attack from {ip} ({pps} PPS)")
 
                 from util.hotkeys import play_beep
@@ -862,7 +875,10 @@ class MainWindow:
             if len(children) >= 100:
                 self.tree.delete(children[0])
             self.tree.insert(
-                "", "end", values=("🟢", "🔴", timestamp, action, display_ip, details), tags=(tag,)
+                "",
+                "end",
+                values=("🟢", "🔴", timestamp, action, display_ip, details),
+                tags=(tag,),
             )
             self.tree.yview_moveto(1.0)
 
@@ -902,12 +918,12 @@ class MainWindow:
 
     def _quick_add_whitelist(self, ip: str) -> None:
         from util.network import ip_in_cidr_block_set
+
         if ip_in_cidr_block_set(ip, self.menu.dynamic_blacklist):
             from tkinter import messagebox
+
             messagebox.showwarning(
-                t("warning_title"),
-                t("error_ip_is_rockstar_relay"),
-                parent=self.root
+                t("warning_title"), t("error_ip_is_rockstar_relay"), parent=self.root
             )
             return
 

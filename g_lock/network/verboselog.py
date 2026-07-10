@@ -100,7 +100,20 @@ def canonical_reason(cls: str, decision: bool, raw_reason: str) -> str:
 
 
 def build_classification_context() -> (
-    tuple[bool, int, set[str], set[CIDR_BLOCK], set[CIDR_BLOCK], bool, int, int, bool, int, int, int]
+    tuple[
+        bool,
+        int,
+        set[str],
+        set[CIDR_BLOCK],
+        set[CIDR_BLOCK],
+        bool,
+        int,
+        int,
+        bool,
+        int,
+        int,
+        int,
+    ]
 ):
     """
     Snapshots the data needed to classify IPs and gate verbose logging, for a
@@ -121,7 +134,9 @@ def build_classification_context() -> (
     ips_ban_duration = int(Menu.config.get("ips_ban_duration", 300))
     auto_lock_on_attack = bool(Menu.config.get("auto_lock_on_attack", False))
     ips_adaptive_multiplier = int(Menu.config.get("ips_adaptive_multiplier", 5))
-    ips_adaptive_measurement_seconds = int(Menu.config.get("ips_adaptive_measurement_seconds", 45))
+    ips_adaptive_measurement_seconds = int(
+        Menu.config.get("ips_adaptive_measurement_seconds", 45)
+    )
     ips_fallback_threshold = int(Menu.config.get("ips_fallback_threshold", 250))
 
     whitelist_ips: set[str] = set()
@@ -159,7 +174,15 @@ def write_marker(text: str) -> None:
 
 
 class _IPWindow:
-    __slots__ = ("count", "suspicious_count", "port", "decision", "reason", "cls", "flood_warned")
+    __slots__ = (
+        "count",
+        "suspicious_count",
+        "port",
+        "decision",
+        "reason",
+        "cls",
+        "flood_warned",
+    )
 
     def __init__(self) -> None:
         self.count = 0
@@ -188,7 +211,15 @@ class VerboseAggregator:
         self._window_start = time.monotonic()
         self._windows: dict[str, _IPWindow] = {}
 
-    def record(self, ip: str, port: int, cls: str, decision: bool, reason: str, is_suspicious: bool) -> None:
+    def record(
+        self,
+        ip: str,
+        port: int,
+        cls: str,
+        decision: bool,
+        reason: str,
+        is_suspicious: bool,
+    ) -> None:
         try:
             window = self._windows.get(ip)
             if window is None:
@@ -201,7 +232,10 @@ class VerboseAggregator:
             window.cls = cls
             if is_suspicious:
                 window.suspicious_count += 1
-                if not window.flood_warned and window.suspicious_count >= self.flood_threshold:
+                if (
+                    not window.flood_warned
+                    and window.suspicious_count >= self.flood_threshold
+                ):
                     window.flood_warned = True
                     self._emit_flood(ip, port, cls, decision, window.suspicious_count)
             self._maybe_flush()
