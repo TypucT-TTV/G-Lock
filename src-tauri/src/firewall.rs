@@ -596,6 +596,9 @@ pub fn start_firewall(app: AppHandle) {
         let mut current_threshold = STATE.read().config.ips_fallback_threshold as usize;
 
         let mut last_log_time: HashMap<String, Instant> = HashMap::new();
+        let mut known_allowed: HashSet<String> = HashSet::new();
+        let mut last_session = STATE.read().active_session.clone();
+        let mut last_locked = STATE.read().is_locked;
         let mut buf = [0u8; 65535];
 
         while !*STOP_FLAG.read() {
@@ -617,6 +620,15 @@ pub fn start_firewall(app: AppHandle) {
             let now = Instant::now();
 
             let state = STATE.read();
+            let active_session = state.active_session.clone();
+            let is_locked = state.is_locked;
+
+            if active_session != last_session || is_locked != last_locked {
+                known_allowed.clear();
+                last_session = active_session.clone();
+                last_locked = is_locked;
+            }
+
             let is_service = HEARTBEAT_SIZES.contains(&payload_len) || MATCHMAKING_SIZES.contains(&payload_len);
             let is_friend = state.is_ip_whitelisted(&ip_src);
             let is_lan = is_lan_ip(&ip_src);
@@ -639,14 +651,16 @@ pub fn start_firewall(app: AppHandle) {
             let mut decision = true;
             let mut reason = "Allow".to_string();
 
-            if is_banned {
+            if known_allowed.contains(&ip_src) {
+                reason = "Known Allowed".to_string();
+            } else if is_banned {
                 decision = false;
                 reason = "Blocked - Flood Protection".to_string();
             } else if state.is_ip_blacklisted(&ip_src) {
                 decision = false;
                 reason = "Blocked - Blacklist".to_string();
             } else {
-                match state.active_session.as_str() {
+                match active_session.as_str() {
                     "Solo" => {
                         if !is_friend && !is_lan {
                             decision = false;
@@ -660,26 +674,30 @@ pub fn start_firewall(app: AppHandle) {
                         }
                     }
                     _ => {
-                        if state.is_locked {
-                            if MATCHMAKING_SIZES.contains(&payload_len) {
-                                decision = false;
-                                reason = "Blocked - Locked Session".to_string();
-                            } else if is_relay {
-                                decision = false;
-                                reason = "Blocked - Relay (Locked)".to_string();
+                        if is_locked {
+                            if !is_friend && !is_lan {
+                                if MATCHMAKING_SIZES.contains(&payload_len) {
+                                    decision = false;
+                                    reason = "Blocked - Locked Session".to_string();
+                                } else if is_relay {
+                                    decision = false;
+                                    reason = "Blocked - Relay (Locked)".to_string();
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // Always allow Heartbeats, and also allow Matchmaking in Solo session
+            // Always allow Heartbeats
             if HEARTBEAT_SIZES.contains(&payload_len) {
                 decision = true;
                 reason = "Service/Heartbeat".to_string();
-            } else if MATCHMAKING_SIZES.contains(&payload_len) && state.active_session == "Solo" {
-                decision = true;
-                reason = "Service/Matchmaking (Solo)".to_string();
+            }
+
+            // Cache allowed IP addresses
+            if decision {
+                known_allowed.insert(ip_src.clone());
             }
 
             // Update Rate Stats
