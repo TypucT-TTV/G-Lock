@@ -138,10 +138,45 @@ impl FirewallState {
 // Global thread control
 static STOP_FLAG: Lazy<Arc<RwLock<bool>>> = Lazy::new(|| Arc::new(RwLock::new(false)));
 
+fn fetch_ripe_prefixes(asn: u32) -> Result<Vec<ipnet::Ipv4Net>, Box<dyn std::error::Error>> {
+    let url = format!("https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{}", asn);
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("G-Lock/1.0 (GTA5-Firewall; +https://github.com)")
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let resp = client.get(&url).send()?;
+    let val: serde_json::Value = resp.json()?;
+    let mut prefixes = Vec::new();
+    if let Some(data) = val.get("data") {
+        if let Some(prefixes_array) = data.get("prefixes").and_then(|p| p.as_array()) {
+            for entry in prefixes_array {
+                if let Some(prefix_str) = entry.get("prefix").and_then(|p| p.as_str()) {
+                    if let Ok(net) = prefix_str.parse::<ipnet::Ipv4Net>() {
+                        prefixes.push(net);
+                    }
+                }
+            }
+        }
+    }
+    Ok(prefixes)
+}
+
 pub fn load_dynamic_blacklist(app: &AppHandle) {
     let mut ranges = Vec::new();
 
-    // 1. T2 Hardcoded prefixes
+    // 1. Fetch Take-Two EU and US prefixes dynamically from RIPE Stat
+    for asn in &[202021, 46555] {
+        match fetch_ripe_prefixes(*asn) {
+            Ok(nets) => {
+                ranges.extend(nets);
+            }
+            Err(e) => {
+                eprintln!("Failed to fetch RIPE prefixes for AS{}: {:?}", asn, e);
+            }
+        }
+    }
+
+    // 1.1. T2 Hardcoded prefixes
     let t2_prefixes = [
         "185.56.64.0/24", "185.56.64.0/22", "185.56.65.0/24", "185.56.66.0/24", "185.56.67.0/24",
         "104.255.104.0/24", "104.255.104.0/22", "104.255.105.0/24", "104.255.106.0/24", "104.255.107.0/24",
@@ -151,7 +186,9 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
     ];
     for p in &t2_prefixes {
         if let Ok(net) = p.parse::<ipnet::Ipv4Net>() {
-            ranges.push(net);
+            if !ranges.contains(&net) {
+                ranges.push(net);
+            }
         }
     }
 
@@ -488,4 +525,35 @@ pub fn start_firewall(app: AppHandle) {
 #[allow(dead_code)]
 pub fn stop_firewall_worker() {
     *STOP_FLAG.write() = true;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_blacklist() {
+        let mut ranges = Vec::new();
+        let path = std::path::Path::new("../db.json");
+        assert!(path.exists(), "db.json must exist in root");
+        let content = std::fs::read_to_string(path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let values = val.get("values").unwrap().as_array().unwrap();
+        let mut found_azure = false;
+        for cat in values {
+            if cat.get("name").unwrap().as_str() == Some("AzureCloud") {
+                found_azure = true;
+                let prefixes = cat.get("properties").unwrap().get("addressPrefixes").unwrap().as_array().unwrap();
+                for p in prefixes {
+                    let prefix_str = p.as_str().unwrap();
+                    if let Ok(net) = prefix_str.parse::<ipnet::Ipv4Net>() {
+                        ranges.push(net);
+                    }
+                }
+            }
+        }
+        assert!(found_azure, "AzureCloud category must exist in db.json");
+        assert!(ranges.len() > 1000, "Should load thousands of Azure ranges");
+        println!("Loaded {} Azure ranges successfully", ranges.len());
+    }
 }
