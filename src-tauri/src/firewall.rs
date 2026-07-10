@@ -29,6 +29,7 @@ pub struct FirewallState {
     pub whitelist: HashSet<String>,
     pub blacklist: HashSet<String>,
     pub dynamic_blacklist: Vec<ipnet::Ipv4Net>,
+    pub dynamic_blacklist_table: Vec<Vec<ipnet::Ipv4Net>>,
     pub config: crate::config::Config,
 }
 
@@ -63,9 +64,13 @@ impl FirewallState {
 
     pub fn is_ip_relay(&self, ip: &str) -> bool {
         if let Ok(ip_addr) = ip.parse::<Ipv4Addr>() {
-            for net in &self.dynamic_blacklist {
-                if net.contains(&ip_addr) {
-                    return true;
+            let ip_u32 = u32::from(ip_addr);
+            let key = (ip_u32 >> 16) as usize;
+            if key < self.dynamic_blacklist_table.len() {
+                for net in &self.dynamic_blacklist_table[key] {
+                    if net.contains(&ip_addr) {
+                        return true;
+                    }
                 }
             }
         }
@@ -122,6 +127,7 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
         whitelist,
         blacklist,
         dynamic_blacklist: Vec::new(),
+        dynamic_blacklist_table: vec![Vec::new(); 65536],
         config,
     }))
 });
@@ -159,6 +165,36 @@ fn fetch_ripe_prefixes(asn: u32) -> Result<Vec<ipnet::Ipv4Net>, Box<dyn std::err
         }
     }
     Ok(prefixes)
+}
+
+fn build_dynamic_blacklist_table(ranges: &[ipnet::Ipv4Net]) -> Vec<Vec<ipnet::Ipv4Net>> {
+    let mut table = vec![Vec::new(); 65536];
+    for &net in ranges {
+        let prefix = net.prefix_len();
+        if prefix >= 16 {
+            let ip_u32 = u32::from(net.network());
+            let key = (ip_u32 >> 16) as usize;
+            if key < 65536 {
+                table[key].push(net);
+            }
+        } else {
+            let ip_u32 = u32::from(net.network());
+            let mask = !((1 << (32 - prefix)) - 1);
+            let start_ip = ip_u32 & mask;
+            let num_ips = 1u64 << (32 - prefix);
+            let end_ip = start_ip.saturating_add((num_ips - 1) as u32);
+            
+            let start_key = (start_ip >> 16) as usize;
+            let end_key = (end_ip >> 16) as usize;
+            
+            for key in start_key..=end_key {
+                if key < 65536 {
+                    table[key].push(net);
+                }
+            }
+        }
+    }
+    table
 }
 
 pub fn load_dynamic_blacklist(app: &AppHandle) {
@@ -247,7 +283,10 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
         }
     }
 
-    STATE.write().dynamic_blacklist = ranges;
+    let table = build_dynamic_blacklist_table(&ranges);
+    let mut state = STATE.write();
+    state.dynamic_blacklist = ranges;
+    state.dynamic_blacklist_table = table;
 }
 
 pub fn update_subnets_cache() {
