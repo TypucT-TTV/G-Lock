@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -31,9 +31,9 @@ pub struct Config {
     pub ips_adaptive_multiplier: u32,
     pub ips_adaptive_measurement_seconds: u32,
     pub ips_fallback_threshold: u32,
-    #[serde(alias = "window_w")]
+    #[serde(rename = "window_w")]
     pub window_width: Option<u32>,
-    #[serde(alias = "window_h")]
+    #[serde(rename = "window_h")]
     pub window_height: Option<u32>,
     pub window_x: Option<i32>,
     pub window_y: Option<i32>,
@@ -75,8 +75,13 @@ impl Default for Config {
     }
 }
 
-pub fn get_config_path() -> &'static Path {
-    Path::new("data.json")
+pub fn get_config_path() -> std::path::PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            return parent.join("data.json");
+        }
+    }
+    std::path::PathBuf::from("data.json")
 }
 
 pub fn load_config() -> Config {

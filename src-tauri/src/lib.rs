@@ -179,6 +179,83 @@ fn save_settings(mut config: Config) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn list_log_files() -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            parent.join("logs")
+        } else {
+            std::path::PathBuf::from("logs")
+        }
+    } else {
+        std::path::PathBuf::from("logs")
+    };
+
+    if logs_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(logs_dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with("connections_") && name.ends_with(".log") {
+                        files.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    files.sort_by(|a, b| b.cmp(a)); // Newest first
+    Ok(files)
+}
+
+#[tauri::command]
+fn read_log_file(filename: String) -> Result<Vec<firewall::LogEntry>, String> {
+    let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            parent.join("logs")
+        } else {
+            std::path::PathBuf::from("logs")
+        }
+    } else {
+        std::path::PathBuf::from("logs")
+    };
+    let file_path = logs_dir.join(filename);
+    if !file_path.exists() {
+        return Err("File not found".to_string());
+    }
+
+    let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    for line in content.lines() {
+        if let Ok(entry) = serde_json::from_str::<firewall::LogEntry>(line) {
+            entries.push(entry);
+        }
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+fn open_log_file_in_notepad(filename: String) -> Result<(), String> {
+    let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            parent.join("logs")
+        } else {
+            std::path::PathBuf::from("logs")
+        }
+    } else {
+        std::path::PathBuf::from("logs")
+    };
+    let file_path = logs_dir.join(filename);
+    if !file_path.exists() {
+        return Err("File not found".to_string());
+    }
+
+    std::process::Command::new("notepad.exe")
+        .arg(file_path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn start_hotkey_listener(app_handle: AppHandle) {
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey;
@@ -262,6 +339,7 @@ pub fn run() {
                                     let mut state = STATE.write();
                                     state.config.window_width = Some(outer_size.width);
                                     state.config.window_height = Some(outer_size.height);
+                                    let _ = save_config(&state.config);
                                 }
                             }
                         }
@@ -270,6 +348,7 @@ pub fn run() {
                                 let mut state = STATE.write();
                                 state.config.window_x = Some(pos.x);
                                 state.config.window_y = Some(pos.y);
+                                let _ = save_config(&state.config);
                             }
                         }
                         tauri::WindowEvent::CloseRequested { .. } => {
@@ -295,7 +374,10 @@ pub fn run() {
             delete_from_list,
             clear_list,
             get_settings,
-            save_settings
+            save_settings,
+            list_log_files,
+            read_log_file,
+            open_log_file_in_notepad
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

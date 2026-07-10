@@ -430,6 +430,56 @@ pub fn get_gta_udp_port(default_port: u16) -> u16 {
     default_port
 }
 
+pub fn append_log_to_file(entry: &LogEntry) {
+    use std::io::Write;
+    
+    let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            parent.join("logs")
+        } else {
+            std::path::PathBuf::from("logs")
+        }
+    } else {
+        std::path::PathBuf::from("logs")
+    };
+
+    if !logs_dir.exists() {
+        let _ = std::fs::create_dir_all(&logs_dir);
+    }
+
+    // Prune old logs first (keep up to 10 latest files)
+    if let Ok(entries) = std::fs::read_dir(&logs_dir) {
+        let mut log_files = Vec::new();
+        for e in entries.flatten() {
+            if let Some(name) = e.file_name().to_str() {
+                if name.starts_with("connections_") && name.ends_with(".log") {
+                    log_files.push(e.path());
+                }
+            }
+        }
+        if log_files.len() >= 10 {
+            log_files.sort();
+            let to_delete = log_files.len() - 9;
+            for path in log_files.iter().take(to_delete) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let file_path = logs_dir.join(format!("connections_{}.log", today));
+    
+    if let Ok(line) = serde_json::to_string(entry) {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(file_path)
+        {
+            let _ = writeln!(file, "{}", line);
+        }
+    }
+}
+
 #[derive(Default)]
 struct RateStats {
     window_start: Option<Instant>,
@@ -631,7 +681,8 @@ pub fn start_firewall(app: AppHandle) {
                         size: payload_len,
                         reason: reason.clone(),
                     };
-                    let _ = app.emit("connection-log", log);
+                    let _ = app.emit("connection-log", log.clone());
+                    append_log_to_file(&log);
                 }
             }
 

@@ -51,6 +51,12 @@
       nav_settings: "Настройки",
       nav_help: "Справка",
       nav_donate: "Поблагодарить",
+      nav_logs: "Логи",
+      logs_title: "Логи соединений",
+      logs_empty: "Лог-файлы еще не созданы или пусты. Они появятся после фиксации сетевой активности фаерволом.",
+      btn_open_in_notepad: "Открыть в Блокноте",
+      logs_file_list_title: "Список сохраненных файлов логов:",
+      logs_view_title: "Содержимое лога:",
       wl_title: "Белый список (Whitelist)",
       bl_title: "Черный список (Blacklist)",
       btn_clear: "Очистить список",
@@ -109,6 +115,12 @@
       nav_settings: "Settings",
       nav_help: "Help / FAQ",
       nav_donate: "Donate",
+      nav_logs: "Logs",
+      logs_title: "Connection Logs",
+      logs_empty: "Log files have not been created yet or are empty. They will appear after the firewall starts recording network activity.",
+      btn_open_in_notepad: "Open in Notepad",
+      logs_file_list_title: "Saved log files list:",
+      logs_view_title: "Log contents:",
       wl_title: "Whitelist",
       bl_title: "Blacklist",
       btn_clear: "Clear List",
@@ -270,6 +282,7 @@
   }
 
   let zoomFactor = $state(1.0);
+  let mounted = $state(false);
 
   // Sound manager state
   let soundVolume = $state(80);
@@ -278,17 +291,59 @@
   let lockSoundCustom = $state("");
   let unlockSoundCustom = $state("");
 
+  // Logs list state
+  let logFilesList = $state([] as string[]);
+  let selectedLogFile = $state(null as string | null);
+  let selectedLogEntries = $state([] as any[]);
+
+  $effect(() => {
+    if (activeTab === "logs") {
+      fetchLogFilesList();
+    }
+  });
+
+  async function fetchLogFilesList() {
+    try {
+      logFilesList = await invoke("list_log_files");
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function handleSelectLogFile(file: string) {
+    selectedLogFile = file;
+    try {
+      selectedLogEntries = await invoke("read_log_file", { filename: file });
+    } catch (e) {
+      console.error(e);
+      selectedLogEntries = [];
+    }
+  }
+
+  async function handleOpenInNotepad() {
+    if (!selectedLogFile) return;
+    try {
+      await invoke("open_log_file_in_notepad", { filename: selectedLogFile });
+    } catch (e) {
+      alert(e);
+    }
+  }
+
   // Auto-sync sound settings to localStorage
   $effect(() => {
+    if (!mounted) return;
     localStorage.setItem("g_lock_sound_vol", soundVolume.toString());
   });
   $effect(() => {
+    if (!mounted) return;
     localStorage.setItem("g_lock_sound_lock_type", lockSoundType);
   });
   $effect(() => {
+    if (!mounted) return;
     localStorage.setItem("g_lock_sound_unlock_type", unlockSoundType);
   });
   $effect(() => {
+    if (!mounted) return;
     if (lockSoundCustom) {
       localStorage.setItem("g_lock_sound_lock_custom", lockSoundCustom);
     } else {
@@ -296,6 +351,7 @@
     }
   });
   $effect(() => {
+    if (!mounted) return;
     if (unlockSoundCustom) {
       localStorage.setItem("g_lock_sound_unlock_custom", unlockSoundCustom);
     } else {
@@ -379,10 +435,6 @@
 
 
   onMount(() => {
-    fetchStatus();
-    fetchLists();
-    fetchSettings();
-
     // Load sound settings
     soundVolume = parseInt(localStorage.getItem("g_lock_sound_vol") || "80");
     lockSoundType = (localStorage.getItem("g_lock_sound_lock_type") as any) || "beep";
@@ -395,6 +447,12 @@
     if (savedZoom) {
       zoomFactor = parseFloat(savedZoom);
     }
+
+    mounted = true;
+
+    fetchStatus();
+    fetchLists();
+    fetchSettings();
 
     // Zoom keys listener (Ctrl + / Ctrl - / Ctrl 0)
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -526,7 +584,7 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.12</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.13</span></h2>
     </div>
 
     <nav class="nav-links">
@@ -538,6 +596,9 @@
       </button>
       <button class="nav-btn" class:active={activeTab === "settings"} onclick={() => activeTab = "settings"}>
         <span class="icon">⚙️</span> {activeLang.nav_settings}
+      </button>
+      <button class="nav-btn" class:active={activeTab === "logs"} onclick={() => activeTab = "logs"}>
+        <span class="icon">📁</span> {activeLang.nav_logs}
       </button>
       <button class="nav-btn" class:active={activeTab === "help"} onclick={() => activeTab = "help"}>
         <span class="icon">💬</span> {activeLang.nav_help}
@@ -869,6 +930,85 @@
             <button class="save-settings-btn" onclick={handleSaveSettings}>💾 Сохранить настройки</button>
             {#if saveStatusMsg}
               <span class="save-status">{saveStatusMsg}</span>
+            {/if}
+          </div>
+        </section>
+      </div>
+    {/if}
+
+    <!-- Tab 3.5: Logs -->
+    {#if activeTab === "logs"}
+      <div class="tab-panel">
+        <header class="panel-header">
+          <h1>{activeLang.logs_title}</h1>
+        </header>
+
+        <section class="logs-layout-grid">
+          <!-- Left side: list of log files -->
+          <div class="logs-sidebar-card glass-panel">
+            <h3>{activeLang.logs_file_list_title}</h3>
+            {#if logFilesList.length === 0}
+              <div class="empty-state">{activeLang.logs_empty}</div>
+            {:else}
+              <div class="log-files-list">
+                {#each logFilesList as file}
+                  <button 
+                    type="button" 
+                    class="log-file-item" 
+                    class:selected={selectedLogFile === file}
+                    onclick={() => handleSelectLogFile(file)}
+                  >
+                    <span>📄 {file}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <!-- Right side: details and content of the selected log file -->
+          <div class="logs-content-card glass-panel">
+            {#if selectedLogFile}
+              <div class="log-content-header">
+                <h3>{activeLang.logs_view_title} {selectedLogFile}</h3>
+                <button type="button" class="btn-primary" onclick={handleOpenInNotepad}>
+                  {activeLang.btn_open_in_notepad}
+                </button>
+              </div>
+              <div class="log-content-table-wrapper">
+                {#if selectedLogEntries.length === 0}
+                  <div class="empty-state">Этот файл лога пуст или не содержит корректных записей.</div>
+                {:else}
+                  <table class="log-table">
+                    <thead>
+                      <tr>
+                        <th>{activeLang.col_time}</th>
+                        <th>{activeLang.col_action}</th>
+                        <th>{activeLang.col_ip}</th>
+                        <th>{activeLang.col_detail}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each selectedLogEntries as entry}
+                        <tr class={entry.action === "BLOCK" ? "log-block" : "log-allow"}>
+                          <td class="time-col">{entry.timestamp}</td>
+                          <td class="action-col">
+                            <span class="action-badge" class:block={entry.action === "BLOCK"}>
+                              {entry.action}
+                            </span>
+                          </td>
+                          <td class="ip-col">{entry.ip}</td>
+                          <td class="reason-col">{entry.reason} (Size: {entry.size})</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                {/if}
+              </div>
+            {:else}
+              <div class="select-prompt">
+                <span class="prompt-icon">📁</span>
+                <p>Выберите файл лога слева, чтобы просмотреть его содержимое, или откройте в Блокноте.</p>
+              </div>
             {/if}
           </div>
         </section>
@@ -1942,6 +2082,171 @@
 
   .donate-btn-large:hover {
     transform: translateY(-2px);
+  }
+
+  /* Logs Tab Styles */
+  .logs-layout-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 20px;
+    height: calc(100vh - 120px);
+    overflow: hidden;
+  }
+
+  .logs-sidebar-card {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    overflow-y: auto;
+  }
+
+  .logs-content-card {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  .log-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .log-file-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    color: var(--text-main);
+    padding: 12px;
+    text-align: left;
+    cursor: pointer;
+    font-family: var(--font-stack);
+    font-size: 14px;
+    transition: all 0.2s ease;
+  }
+
+  .log-file-item:hover {
+    background: rgba(57, 242, 236, 0.08);
+    border-color: rgba(57, 242, 236, 0.2);
+  }
+
+  .log-file-item.selected {
+    background: rgba(57, 242, 236, 0.15);
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(57, 242, 236, 0.2);
+  }
+
+  .log-content-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent-cyan), #00d2c6);
+    border: none;
+    border-radius: 8px;
+    color: #0c0f16;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-stack);
+    transition: all 0.2s ease;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(57, 242, 236, 0.3);
+  }
+
+  .log-content-table-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: 'Consolas', monospace;
+  }
+
+  .log-table th {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-family: var(--font-stack);
+  }
+
+  .log-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  }
+
+  .log-table tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .log-block {
+    color: #ff6b6b;
+  }
+
+  .log-allow {
+    color: #51cf66;
+  }
+
+  .action-badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    background: rgba(81, 207, 102, 0.15);
+    color: #51cf66;
+    display: inline-block;
+  }
+
+  .action-badge.block {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+  }
+
+  .select-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    color: var(--text-dim);
+  }
+
+  .prompt-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+
+  .time-col {
+    color: var(--text-dim);
+    width: 150px;
+  }
+
+  .action-col {
+    width: 80px;
+  }
+
+  .ip-col {
+    font-weight: bold;
+    width: 140px;
   }
 
   /* Keyframe Animations */
