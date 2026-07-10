@@ -138,7 +138,7 @@ impl FirewallState {
 // Global thread control
 static STOP_FLAG: Lazy<Arc<RwLock<bool>>> = Lazy::new(|| Arc::new(RwLock::new(false)));
 
-pub fn load_dynamic_blacklist() {
+pub fn load_dynamic_blacklist(app: &AppHandle) {
     let mut ranges = Vec::new();
 
     // 1. T2 Hardcoded prefixes
@@ -156,18 +156,50 @@ pub fn load_dynamic_blacklist() {
     }
 
     // 2. Load Azure Cloud from db.json if present
-    if std::path::Path::new("db.json").exists() {
-        if let Ok(content) = std::fs::read_to_string("db.json") {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(values) = val.get("values").and_then(|v| v.as_array()) {
-                    for cat in values {
-                        if cat.get("name").and_then(|n| n.as_str()) == Some("AzureCloud") {
-                            if let Some(prefixes) = cat.get("properties").and_then(|p| p.get("addressPrefixes")).and_then(|a| a.as_array()) {
-                                for p in prefixes {
-                                    if let Some(prefix_str) = p.as_str() {
-                                        if let Ok(net) = prefix_str.parse::<ipnet::Ipv4Net>() {
-                                            ranges.push(net);
-                                        }
+    use tauri::Manager;
+    use tauri::path::BaseDirectory;
+    let mut db_content = None;
+
+    if let Ok(resource_path) = app.path().resolve("db.json", BaseDirectory::Resource) {
+        if resource_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&resource_path) {
+                db_content = Some(content);
+            }
+        }
+    }
+
+    if db_content.is_none() {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let path = exe_dir.join("db.json");
+                if path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        db_content = Some(content);
+                    }
+                }
+            }
+        }
+    }
+
+    if db_content.is_none() {
+        let path = std::path::Path::new("db.json");
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                db_content = Some(content);
+            }
+        }
+    }
+
+    if let Some(content) = db_content {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(values) = val.get("values").and_then(|v| v.as_array()) {
+                for cat in values {
+                    if cat.get("name").and_then(|n| n.as_str()) == Some("AzureCloud") {
+                        if let Some(prefixes) = cat.get("properties").and_then(|p| p.get("addressPrefixes")).and_then(|a| a.as_array()) {
+                            for p in prefixes {
+                                if let Some(prefix_str) = p.as_str() {
+                                    if let Ok(net) = prefix_str.parse::<ipnet::Ipv4Net>() {
+                                        ranges.push(net);
                                     }
                                 }
                             }
@@ -250,12 +282,7 @@ struct RateStats {
     suspicious_count: usize,
 }
 
-pub fn play_beep(freq: u32, duration: u32) {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        windows_sys::Win32::System::Diagnostics::Debug::Beep(freq, duration);
-    }
-}
+
 
 pub fn start_firewall(app: AppHandle) {
     let running = STATE.read().is_running;
@@ -266,7 +293,7 @@ pub fn start_firewall(app: AppHandle) {
     *STOP_FLAG.write() = false;
 
     // Load initial dynamic blacklist
-    load_dynamic_blacklist();
+    load_dynamic_blacklist(&app);
 
     std::thread::spawn(move || {
         let filter = "udp.DstPort == 6672 and udp.PayloadLength > 0 and ip";
@@ -414,21 +441,16 @@ pub fn start_firewall(app: AppHandle) {
                     // Trigger Auto-Lock or Alarm
                     if state.config.ips_enabled && pps >= current_threshold {
                         if state.config.sound_enabled {
-                            play_beep(state.config.sound_lock_freq, state.config.sound_lock_dur);
+                            let _ = app.emit("play-sound", "ips");
                         }
                         if state.config.auto_lock_on_attack && !state.is_locked {
                             drop(state);
                             {
                                 let mut state_write = STATE.write();
                                 state_write.is_locked = true;
-                                if state_write.config.sound_enabled {
-                                    play_beep(state_write.config.sound_lock_freq, state_write.config.sound_lock_dur);
-                                }
                             }
                             let _ = app.emit("status-changed", ());
                             crate::update_window_icon(&app);
-                            // Re-acquire read lock
-                            // Since we drop and lock is now completed, we just recreate local reference
                         }
                     }
                 }

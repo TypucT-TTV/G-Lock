@@ -2,7 +2,7 @@ mod config;
 mod firewall;
 
 use config::{save_config, Config};
-use firewall::{play_beep, start_firewall, update_subnets_cache, STATE};
+use firewall::{start_firewall, update_subnets_cache, STATE};
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
@@ -38,20 +38,17 @@ pub fn update_window_icon(app: &AppHandle) {
 }
 
 fn toggle_lock_logic(app: &AppHandle) {
-    let mut sound_to_play = None;
+    let is_locked;
+    let sound_enabled;
     {
         let mut state = STATE.write();
         state.is_locked = !state.is_locked;
-        if state.config.sound_enabled {
-            if state.is_locked {
-                sound_to_play = Some((state.config.sound_lock_freq, state.config.sound_lock_dur));
-            } else {
-                sound_to_play = Some((state.config.sound_unlock_freq, state.config.sound_unlock_dur));
-            }
-        }
+        is_locked = state.is_locked;
+        sound_enabled = state.config.sound_enabled;
     }
-    if let Some((freq, dur)) = sound_to_play {
-        play_beep(freq, dur);
+    if sound_enabled {
+        let sound_name = if is_locked { "lock" } else { "unlock" };
+        let _ = app.emit("play-sound", sound_name);
     }
     let _ = app.emit("status-changed", ());
     update_window_icon(app);
@@ -167,9 +164,15 @@ fn get_settings() -> Config {
 }
 
 #[tauri::command]
-fn save_settings(config: Config) -> Result<(), String> {
+fn save_settings(mut config: Config) -> Result<(), String> {
     {
         let mut state = STATE.write();
+        config.window_width = state.config.window_width;
+        config.window_height = state.config.window_height;
+        config.window_x = state.config.window_x;
+        config.window_y = state.config.window_y;
+        config.zoom_factor = state.config.zoom_factor;
+        
         state.config = config.clone();
         let _ = save_config(&config);
     }
@@ -252,19 +255,28 @@ pub fn run() {
 
                 let w_clone = window.clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
-                            if let Ok(physical_size) = w_clone.inner_size() {
-                                if let Ok(physical_pos) = w_clone.outer_position() {
+                    match event {
+                        tauri::WindowEvent::Resized(_) => {
+                            if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
+                                if let Ok(outer_size) = w_clone.outer_size() {
                                     let mut state = STATE.write();
-                                    state.config.window_width = Some(physical_size.width);
-                                    state.config.window_height = Some(physical_size.height);
-                                    state.config.window_x = Some(physical_pos.x);
-                                    state.config.window_y = Some(physical_pos.y);
-                                    let _ = save_config(&state.config);
+                                    state.config.window_width = Some(outer_size.width);
+                                    state.config.window_height = Some(outer_size.height);
                                 }
                             }
                         }
+                        tauri::WindowEvent::Moved(pos) => {
+                            if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
+                                let mut state = STATE.write();
+                                state.config.window_x = Some(pos.x);
+                                state.config.window_y = Some(pos.y);
+                            }
+                        }
+                        tauri::WindowEvent::CloseRequested { .. } => {
+                            let state = STATE.read();
+                            let _ = save_config(&state.config);
+                        }
+                        _ => {}
                     }
                 });
             }

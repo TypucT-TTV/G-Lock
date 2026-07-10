@@ -31,7 +31,9 @@ pub struct Config {
     pub ips_adaptive_multiplier: u32,
     pub ips_adaptive_measurement_seconds: u32,
     pub ips_fallback_threshold: u32,
+    #[serde(alias = "window_w")]
     pub window_width: Option<u32>,
+    #[serde(alias = "window_h")]
     pub window_height: Option<u32>,
     pub window_x: Option<i32>,
     pub window_y: Option<i32>,

@@ -49,7 +49,8 @@
       nav_dash: "Панель управления",
       nav_lists: "Списки защиты",
       nav_settings: "Настройки",
-      nav_help: "Справка / Донат",
+      nav_help: "Справка",
+      nav_donate: "Поблагодарить",
       wl_title: "Белый список (Whitelist)",
       bl_title: "Черный список (Blacklist)",
       btn_clear: "Очистить список",
@@ -59,6 +60,17 @@
       btn_save: "Сохранить",
       btn_cancel: "Отмена",
       settings_sound: "Звуковые сигналы оповещения",
+      settings_sound_title: "Настройка звуков",
+      settings_sound_vol: "Громкость звука:",
+      settings_sound_lock: "Звук блокировки (Lock):",
+      settings_sound_unlock: "Звук разблокировки (Unlock):",
+      sound_type_beep: "Стандартный сигнал (Beep)",
+      sound_type_custom: "Пользовательский аудиофайл",
+      btn_test_sound: "▶ Тест",
+      btn_reset_sound: "🔄 Сброс",
+      sound_file_loaded: "Аудиофайл успешно загружен",
+      sound_file_empty: "Файл не выбран (нажмите для загрузки)",
+      err_sound_size: "Ошибка: Звуковой файл должен быть меньше 1 МБ!",
       settings_ips: "Система предотвращения вторжений (IPS)",
       settings_multiplier: "Адаптивный множитель PPS:",
       settings_measurement: "Время замера базовой активности (сек):",
@@ -67,7 +79,15 @@
       settings_lang: "Язык интерфейса:",
       settings_saved: "Настройки успешно сохранены!",
       copy_success: "IP-адрес скопирован в буфер обмена",
-      err_relay: "Защита: Нельзя добавить реле-сервер Rockstar в белый список!"
+      err_relay: "Защита: Нельзя добавить реле-сервер Rockstar в белый список!",
+      donate_title: "Поддержка проекта G-Lock",
+      donate_p1: "Всем привет. Меня зовут Тёма ТурисТ, я стример.",
+      donate_p2: "Я сделал G-Lock для себя. Меня годами преследовали читеры на стримах — крашили игру мне и моим друзьям, срывали эфиры, и сделать с этим ничего было нельзя. Поддержки не было, готовых решений тоже. Тогда я написал защиту сам.",
+      donate_p3: "И когда однажды я отыграл целый стрим без единого краша — понял, что это работает. Решил не держать при себе и выложить в открытый доступ, чтобы любой, кого достали гриферы, мог защититься так же.",
+      donate_p4: "G-Lock полностью бесплатный, с открытым кодом и без рекламы — и таким останется. Если он спас твой стрим или просто помог спокойно поиграть с друзьями, буду благодарен за любую поддержку. Это идет на время разработки и помогает делать тул лучше. Спасибо, что вы есть 🛡️",
+      btn_donate_da: "🎁 Отправить донат (donationalerts.com)",
+      blocked_threats_msg: "G-Lock отбил {n} атак за эту сессию 🛡️ Если помогло — ",
+      support_link: "поддержите разработку"
     },
     en: {
       status_open: "🟢 OPEN",
@@ -87,7 +107,8 @@
       nav_dash: "Dashboard",
       nav_lists: "Protection Lists",
       nav_settings: "Settings",
-      nav_help: "Help / Support",
+      nav_help: "Help / FAQ",
+      nav_donate: "Donate",
       wl_title: "Whitelist",
       bl_title: "Blacklist",
       btn_clear: "Clear List",
@@ -96,7 +117,18 @@
       drawer_placeholder: "Enter IP or CIDR...",
       btn_save: "Save",
       btn_cancel: "Cancel",
-      settings_sound: "Enable Audio Beep Alerts",
+      settings_sound: "Enable Audio Alerts",
+      settings_sound_title: "Audio Alarm & Sound Settings",
+      settings_sound_vol: "Sound Volume:",
+      settings_sound_lock: "Lock Alert Sound:",
+      settings_sound_unlock: "Unlock Alert Sound:",
+      sound_type_beep: "Standard Beep Signal",
+      sound_type_custom: "Custom Audio File",
+      btn_test_sound: "▶ Test",
+      btn_reset_sound: "🔄 Reset",
+      sound_file_loaded: "Audio file loaded successfully",
+      sound_file_empty: "No file selected (click to upload)",
+      err_sound_size: "Error: Audio file must be smaller than 1 MB!",
       settings_ips: "Intrusion Prevention System (IPS)",
       settings_multiplier: "Adaptive PPS Multiplier:",
       settings_measurement: "Base Activity Measure Duration (sec):",
@@ -105,12 +137,125 @@
       settings_lang: "Interface Language:",
       settings_saved: "Settings saved successfully!",
       copy_success: "IP Address copied to clipboard",
-      err_relay: "Security Alert: Cannot whitelist official Rockstar/Azure relay IP!"
+      err_relay: "Security Alert: Cannot whitelist official Rockstar/Azure relay IP!",
+      donate_title: "Support G-Lock Development",
+      donate_p1: "Hi everyone! I'm Tyoma Tourist, a streamer.",
+      donate_p2: "I originally built G-Lock for myself. For years, griefers and modders stalked me on stream — constantly crashing my game, kicking my friends, and ruining broadcasts. There was no help from support and no working solutions. So, I decided to write my own protection.",
+      donate_p3: "When I finally completed a whole stream without a single crash, I knew it worked. I decided to make it open-source so anyone tired of griefers could play peacefully too.",
+      donate_p4: "G-Lock is and will always remain completely free, open-source, and ad-free. If it saved your stream or simply helped you and your friends play in peace, I would be grateful for any support. It directly funds development time and helps make this tool even better. Thank you for being here 🛡️",
+      btn_donate_da: "🎁 Send Donation (donationalerts.com)",
+      blocked_threats_msg: "G-Lock warded off {n} threats this session 🛡️ If it helped — ",
+      support_link: "support development"
     }
   };
 
   // Get active localization
   let activeLang = $derived(settings.language === "en" ? t.en : t.ru);
+
+  // Accordion expanded ID state
+  let expandedHelpId = $state("");
+  let blockedThreatsCount = $state(0);
+
+  function toggleHelpAccordion(id: string) {
+    if (expandedHelpId === id) {
+      expandedHelpId = "";
+    } else {
+      expandedHelpId = id;
+    }
+  }
+
+  // Localized Help Accordion Articles
+  const helpArticles = $derived(
+    settings.language === "en"
+      ? [
+          {
+            id: "lock",
+            title: "🔒 Lock Session Mode",
+            short: "Blocks new player connections while keeping existing ones.",
+            full: "This mode blocks incoming matchmaking requests. Players already inside your session will remain connected, but no new players can join. Use F9 globally to toggle this mode on/off. WARNING: Matchmaking is disabled while locked. Always unlock before searching for a new populated lobby, and re-lock only after loading is complete."
+          },
+          {
+            id: "solo",
+            title: "⚡ Solo Session Mode",
+            short: "Splits you off into a completely empty lobby where you are the host.",
+            full: "Blocks all incoming and current connections from other players. Your current lobby splits, migrating you into a completely solo lobby. Crucial Social Club, save synchronization, and Rockstar services traffic will remain allowed."
+          },
+          {
+            id: "whitelist",
+            title: "📜 Whitelist Session Mode",
+            short: "Allows connections only from whitelisted IP addresses.",
+            full: "Restricts all incoming connections except for those specifically defined in your Whitelist (e.g., your friends' IP addresses). Any unlisted IP attempting to connect is immediately blocked."
+          },
+          {
+            id: "ips",
+            title: "🛡️ Intrusion Prevention System (IPS)",
+            short: "Automatically blocks network flood and DDoS attacks.",
+            full: "IPS measures normal background traffic from other players. If any unknown IP address starts flooding packets above the adaptive threshold, IPS automatically bans that IP for a cooldown period (default: 60 seconds). Crucial Rockstar relays are exempt from bans."
+          },
+          {
+            id: "lists",
+            title: "✍️ Whitelist & Blacklist Editor",
+            short: "Manage safe and blocked IP addresses manually.",
+            full: "In the 'Protection Lists' tab, you can add, edit, or delete IP addresses and subnets in CIDR format (e.g., 192.168.1.0/24). Blacklisted IPs are always dropped, while whitelisted IPs bypass security constraints."
+          },
+          {
+            id: "logs",
+            title: "📊 Real-time Network Log",
+            short: "Interactive view of all traffic and active player connections.",
+            full: "Displays all incoming network packets. Click green/red buttons to quickly add IPs to Whitelist/Blacklist, or right-click to copy IPs. Color codes: Yellow (Friends), Green (P2P), Blue (Rockstar Relay), Red (Blocked)."
+          },
+          {
+            id: "hotkeys",
+            title: "🔑 Global Hotkeys",
+            short: "Keys to control G-Lock without tab-switching out of GTA.",
+            full: "F9: Toggle Lock Session on/off. Ctrl+F9: Panic Unlock (instantly drops all blocks). Ctrl+/Ctrl-: Zoom UI in/out. Ctrl+0: Reset UI zoom."
+          }
+        ]
+      : [
+          {
+            id: "lock",
+            title: "🔒 Режим «Запереть сессию»",
+            short: "Блокирует подключение новых игроков, не разрывая связь с текущими.",
+            full: "Этот режим фильтрует входящие P2P-пакеты матчмейкинга для новых IP-адресов. Игроки, которые уже находятся в вашей сессии, смогут остаться, но новые зайти не смогут. Нажмите F9 глобально для быстрого включения/выключения. ВНИМАНИЕ: Поиск новых лобби не работает в запертом режиме. Всегда разблокируйте сессию перед поиском новой игры, и заприте обратно после полной загрузки."
+          },
+          {
+            id: "solo",
+            title: "⚡ Режим «Solo-сессия»",
+            short: "Отделяет вас в пустое лобби, где вы гарантированно будете хостом.",
+            full: "Полностью блокирует соединения со всеми другими игроками. Текущее лобби разделится, и вы останетесь в сессии совершенно один. При этом критически важный трафик Rockstar Games, Social Club и облачных сохранений продолжает работать."
+          },
+          {
+            id: "whitelist",
+            title: "📜 Режим «Сессия по вайтлисту»",
+            short: "Разрешает подключения только с IP-адресов из белого списка.",
+            full: "Ограничивает все входящие P2P-подключения, кроме адресов друзей, внесенных в ваш Белый список. Любой другой игрок, пытающийся подключиться к вашей сессии, будет автоматически заблокирован."
+          },
+          {
+            id: "ips",
+            title: "🛡️ Система предотвращения вторжений (IPS)",
+            short: "Автоматически блокирует сетевой флуд и DDoS-атаки.",
+            full: "IPS замеряет обычную фоновую активность игроков. Если какой-то неизвестный IP превышает динамический лимит пакетов в секунду (PPS), IPS забанит его на время остывания (по умолчанию 60 секунд), чтобы предотвратить зависание лобби. Серверы Rockstar исключены из банов."
+          },
+          {
+            id: "lists",
+            title: "✍️ Управление списками защиты",
+            short: "Ручное добавление и редактирование правил фильтрации.",
+            full: "На вкладке 'Списки защиты' вы можете просматривать, добавлять, изменять и удалять IP-адреса и подсети в формате CIDR (например, 192.168.1.0/24). Черный список блокируется всегда, белый список имеет наивысший приоритет."
+          },
+          {
+            id: "logs",
+            title: "📊 Интерактивный лог активности",
+            short: "Отображение сетевых пакетов и быстрые действия в реальном времени.",
+            full: "Вы можете видеть IP-адреса игроков на панели лога. Клик по кнопке 🟢 добавляет IP в белый список, 🔴 — в черный. Правый клик позволяет скопировать адрес. Цвета: Желтый (Друзья), Зеленый (P2P), Синий (Релей R*), Красный (Блокирован)."
+          },
+          {
+            id: "hotkeys",
+            title: "🔑 Глобальные горячие клавиши",
+            short: "Управление фаерволом без переключения из игры.",
+            full: "F9: Быстро запереть/отпереть сессию. Ctrl+F9: Panic Unlock (экстренное разблокирование). Ctrl + / Ctrl -: Масштаб интерфейса. Ctrl + 0: Сбросить масштаб."
+          }
+        ]
+  );
 
   async function fetchStatus() {
     status = await invoke("get_status");
@@ -126,14 +271,124 @@
 
   let zoomFactor = $state(1.0);
 
+  // Sound manager state
+  let soundVolume = $state(80);
+  let lockSoundType = $state("beep" as "beep" | "custom");
+  let unlockSoundType = $state("beep" as "beep" | "custom");
+  let lockSoundCustom = $state("");
+  let unlockSoundCustom = $state("");
+
+  // Auto-sync sound settings to localStorage
   $effect(() => {
-    document.body.style.zoom = zoomFactor.toString();
+    localStorage.setItem("g_lock_sound_vol", soundVolume.toString());
   });
+  $effect(() => {
+    localStorage.setItem("g_lock_sound_lock_type", lockSoundType);
+  });
+  $effect(() => {
+    localStorage.setItem("g_lock_sound_unlock_type", unlockSoundType);
+  });
+  $effect(() => {
+    if (lockSoundCustom) {
+      localStorage.setItem("g_lock_sound_lock_custom", lockSoundCustom);
+    } else {
+      localStorage.removeItem("g_lock_sound_lock_custom");
+    }
+  });
+  $effect(() => {
+    if (unlockSoundCustom) {
+      localStorage.setItem("g_lock_sound_unlock_custom", unlockSoundCustom);
+    } else {
+      localStorage.removeItem("g_lock_sound_unlock_custom");
+    }
+  });
+
+  function playSynthBeep(freq: number, duration: number, vol: number) {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      
+      gain.gain.setValueAtTime(vol / 100, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + duration / 1000);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + duration / 1000);
+    } catch (e) {
+      console.error("AudioContext error: ", e);
+    }
+  }
+
+  function playCustomSound(base64Data: string, vol: number) {
+    try {
+      const audio = new Audio(base64Data);
+      audio.volume = vol / 100;
+      audio.play();
+    } catch (e) {
+      console.error("Audio playback error: ", e);
+    }
+  }
+
+  function triggerAudioAlert(type: "lock" | "unlock" | "ips") {
+    if (!settings.sound_enabled) return;
+    
+    if (type === "lock" || type === "ips") {
+      if (lockSoundType === "custom" && lockSoundCustom) {
+        playCustomSound(lockSoundCustom, soundVolume);
+      } else {
+        playSynthBeep(900, 200, soundVolume);
+      }
+    } else if (type === "unlock") {
+      if (unlockSoundType === "custom" && unlockSoundCustom) {
+        playCustomSound(unlockSoundCustom, soundVolume);
+      } else {
+        playSynthBeep(400, 200, soundVolume);
+      }
+    }
+  }
+
+  function handleSoundUpload(e: Event, type: "lock" | "unlock") {
+    const input = e.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    
+    const file = input.files[0];
+    if (file.size > 1024 * 1024) {
+      alert(activeLang.err_sound_size);
+      input.value = "";
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      if (type === "lock") {
+        lockSoundCustom = base64;
+      } else {
+        unlockSoundCustom = base64;
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+
 
   onMount(() => {
     fetchStatus();
     fetchLists();
     fetchSettings();
+
+    // Load sound settings
+    soundVolume = parseInt(localStorage.getItem("g_lock_sound_vol") || "80");
+    lockSoundType = (localStorage.getItem("g_lock_sound_lock_type") as any) || "beep";
+    unlockSoundType = (localStorage.getItem("g_lock_sound_unlock_type") as any) || "beep";
+    lockSoundCustom = localStorage.getItem("g_lock_sound_lock_custom") || "";
+    unlockSoundCustom = localStorage.getItem("g_lock_sound_unlock_custom") || "";
 
     // Load zoom level
     const savedZoom = localStorage.getItem("g_lock_zoom");
@@ -172,7 +427,15 @@
 
     const logUnsub = listen("connection-log", (event) => {
       const payload = event.payload as any;
+      if (payload.action === "BLOCK") {
+        blockedThreatsCount += 1;
+      }
       logs = [payload, ...logs.slice(0, 99)];
+    });
+
+    const playSoundUnsub = listen("play-sound", (event) => {
+      const payload = event.payload as "lock" | "unlock" | "ips";
+      triggerAudioAlert(payload);
     });
 
     return () => {
@@ -180,6 +443,7 @@
       statusUnsub.then(fn => fn());
       listsUnsub.then(fn => fn());
       logUnsub.then(fn => fn());
+      playSoundUnsub.then(fn => fn());
     };
   });
 
@@ -257,12 +521,12 @@
   }
 </script>
 
-<div class="app-layout">
+<div class="app-layout" style="transform: scale({zoomFactor}); width: {100 / zoomFactor}vw; height: {100 / zoomFactor}vh; transform-origin: top left; position: absolute; top: 0; left: 0;">
   <!-- Left Sidebar Navigation -->
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.1</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.9</span></h2>
     </div>
 
     <nav class="nav-links">
@@ -278,12 +542,16 @@
       <button class="nav-btn" class:active={activeTab === "help"} onclick={() => activeTab = "help"}>
         <span class="icon">💬</span> {activeLang.nav_help}
       </button>
+      <button class="nav-btn" class:active={activeTab === "donate"} onclick={() => activeTab = "donate"}>
+        <span class="icon">🎁</span> {activeLang.nav_donate}
+      </button>
     </nav>
 
     <div class="footer-links">
-      <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" class="donate-link">
-        💰 Поблагодарить ТурисТа
-      </a>
+      <div class="lang-selector-sidebar">
+        <button class="lang-pill" class:active={settings.language === "ru"} onclick={async () => { settings.language = "ru"; await handleSaveSettings(); }}>RU</button>
+        <button class="lang-pill" class:active={settings.language === "en"} onclick={async () => { settings.language = "en"; await handleSaveSettings(); }}>EN</button>
+      </div>
     </div>
   </aside>
 
@@ -336,6 +604,15 @@
                 {/if}
               </h2>
               <span class="status-tip">Кликните, чтобы переключить замок (F9)</span>
+              
+              <div class="threats-banner" onclick={(e) => e.stopPropagation()}>
+                <span>
+                  {activeLang.blocked_threats_msg.replace("{n}", blockedThreatsCount.toString())}
+                  <button type="button" class="support-inline-link" onclick={() => activeTab = "donate"}>
+                    {activeLang.support_link}
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -465,13 +742,79 @@
         </header>
 
         <section class="settings-form">
-          <!-- Audio Alarm Switch -->
+          <!-- Advanced Audio Alert Configuration -->
           <div class="settings-section">
-            <label class="switch-container">
-              <input type="checkbox" bind:checked={settings.sound_enabled} />
-              <span class="slider"></span>
-              <span class="label-text">{activeLang.settings_sound}</span>
-            </label>
+            <h3>🔊 {activeLang.settings_sound_title}</h3>
+            
+            <div class="setting-item">
+              <label class="switch-container">
+                <input type="checkbox" bind:checked={settings.sound_enabled} />
+                <span class="slider"></span>
+                <span class="label-text">{activeLang.settings_sound}</span>
+              </label>
+            </div>
+
+            {#if settings.sound_enabled}
+              <div class="setting-item">
+                <div class="slider-header">
+                  <span>{activeLang.settings_sound_vol}</span>
+                  <span class="slider-value">{soundVolume}%</span>
+                </div>
+                <input type="range" min="0" max="100" bind:value={soundVolume} />
+              </div>
+
+              <div class="setting-item sound-picker">
+                <span class="sound-picker-title">{activeLang.settings_sound_lock}</span>
+                <div class="sound-mode-toggle">
+                  <button type="button" class="toggle-pill" class:active={lockSoundType === "beep"} onclick={() => lockSoundType = "beep"}>{activeLang.sound_type_beep}</button>
+                  <button type="button" class="toggle-pill" class:active={lockSoundType === "custom"} onclick={() => lockSoundType = "custom"}>{activeLang.sound_type_custom}</button>
+                </div>
+                {#if lockSoundType === "custom"}
+                  <div class="file-upload-row">
+                    <label class="file-upload-btn">
+                      <input type="file" accept="audio/*" onchange={(e) => handleSoundUpload(e, "lock")} style="display: none;" />
+                      <span>{lockSoundCustom ? activeLang.sound_file_loaded : activeLang.sound_file_empty}</span>
+                    </label>
+                    {#if lockSoundCustom}
+                      <div class="sound-btn-group">
+                        <button type="button" class="btn-action" onclick={() => playCustomSound(lockSoundCustom, soundVolume)}>{activeLang.btn_test_sound}</button>
+                        <button type="button" class="btn-action reset" onclick={() => { lockSoundCustom = ""; lockSoundType = "beep"; }}>{activeLang.btn_reset_sound}</button>
+                      </div>
+                    {/if}
+                  </div>
+                {:else}
+                  <div class="file-upload-row">
+                    <button type="button" class="btn-action" onclick={() => playSynthBeep(900, 200, soundVolume)}>{activeLang.btn_test_sound}</button>
+                  </div>
+                {/if}
+              </div>
+
+              <div class="setting-item sound-picker">
+                <span class="sound-picker-title">{activeLang.settings_sound_unlock}</span>
+                <div class="sound-mode-toggle">
+                  <button type="button" class="toggle-pill" class:active={unlockSoundType === "beep"} onclick={() => unlockSoundType = "beep"}>{activeLang.sound_type_beep}</button>
+                  <button type="button" class="toggle-pill" class:active={unlockSoundType === "custom"} onclick={() => unlockSoundType = "custom"}>{activeLang.sound_type_custom}</button>
+                </div>
+                {#if unlockSoundType === "custom"}
+                  <div class="file-upload-row">
+                    <label class="file-upload-btn">
+                      <input type="file" accept="audio/*" onchange={(e) => handleSoundUpload(e, "unlock")} style="display: none;" />
+                      <span>{unlockSoundCustom ? activeLang.sound_file_loaded : activeLang.sound_file_empty}</span>
+                    </label>
+                    {#if unlockSoundCustom}
+                      <div class="sound-btn-group">
+                        <button type="button" class="btn-action" onclick={() => playCustomSound(unlockSoundCustom, soundVolume)}>{activeLang.btn_test_sound}</button>
+                        <button type="button" class="btn-action reset" onclick={() => { unlockSoundCustom = ""; unlockSoundType = "beep"; }}>{activeLang.btn_reset_sound}</button>
+                      </div>
+                    {/if}
+                  </div>
+                {:else}
+                  <div class="file-upload-row">
+                    <button type="button" class="btn-action" onclick={() => playSynthBeep(400, 200, soundVolume)}>{activeLang.btn_test_sound}</button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
 
           <!-- IPS Configurations -->
@@ -521,15 +864,6 @@
             {/if}
           </div>
 
-          <!-- Language Switcher -->
-          <div class="settings-section">
-            <h3>🌐 {activeLang.settings_lang}</h3>
-            <div class="lang-switch-buttons">
-              <button class="lang-btn" class:active={settings.language === "ru"} onclick={() => settings.language = "ru"}>RU</button>
-              <button class="lang-btn" class:active={settings.language === "en"} onclick={() => settings.language = "en"}>EN</button>
-            </div>
-          </div>
-
           <!-- Save Button -->
           <div class="settings-actions">
             <button class="save-settings-btn" onclick={handleSaveSettings}>💾 Сохранить настройки</button>
@@ -550,30 +884,54 @@
 
         <section class="help-content">
           <div class="info-card">
-            <h3>ℹ️ О проекте G-Lock</h3>
+            <h3>ℹ️ {settings.language === "en" ? "About G-Lock" : "О проекте G-Lock"}</h3>
             <p>
-              G-Lock — это персональный фаервол для безопасной игры в GTA Online. Он полностью
-              автоматизирует правила Windows Filtering Platform через низкоуровневый драйвер
-              WinDivert, блокируя посторонних игроков, читеров и защищая от DDoS-атак.
+              {settings.language === "en"
+                ? "G-Lock is a personal firewall for safe gaming in GTA Online. It automates Windows Filtering Platform rules via the WinDivert driver, blocking malicious players, griefers, modders, and protecting you from network floods and DDoS attacks."
+                : "G-Lock — это персональный фаервол для безопасной игры в GTA Online. Он полностью автоматизирует правила Windows Filtering Platform через низкоуровневый драйвер WinDivert, блокируя посторонних игроков, читеров и защищая от DDoS-атак."}
             </p>
           </div>
 
-          <div class="info-card">
-            <h3>🔑 Горячие клавиши</h3>
-            <ul>
-              <li><strong>F9</strong> — Быстрое запирание / отпирание текущей сессии из игры.</li>
-              <li><strong>Ctrl + F9</strong> — Экстренное разблокирование (Panic Unlock).</li>
-            </ul>
+          <!-- FAQ Accordion -->
+          <div class="faq-accordion">
+            {#each helpArticles as article}
+              <div class="accordion-item" class:expanded={expandedHelpId === article.id}>
+                <button type="button" class="accordion-header" onclick={() => toggleHelpAccordion(article.id)}>
+                  <h3>{article.title}</h3>
+                  <span class="accordion-icon">{expandedHelpId === article.id ? "▼" : "▶"}</span>
+                </button>
+                {#if expandedHelpId === article.id}
+                  <div class="accordion-content">
+                    <p class="accordion-short"><strong>{settings.language === "en" ? "Summary" : "Коротко"}:</strong> {article.short}</p>
+                    <p class="accordion-full">{article.full}</p>
+                  </div>
+                {/if}
+              </div>
+            {/each}
           </div>
+        </section>
+      </div>
+    {/if}
 
-          <div class="info-card">
-            <h3>💸 Поддержка разработчика</h3>
-            <p>
-              Если программа помогла вам комфортно играть без читеров, вы можете отблагодарить автора
-              доната. Все средства идут на развитие полезных инструментов для GTA сообщества.
-            </p>
+    <!-- Tab 5: Donate -->
+    {#if activeTab === "donate"}
+      <div class="tab-panel">
+        <header class="panel-header">
+          <h1>{activeLang.nav_donate}</h1>
+        </header>
+
+        <section class="donate-content">
+          <div class="info-card donate-card text-center">
+            <span class="donate-emoji">🎁</span>
+            <h2>{activeLang.donate_title}</h2>
+            <div class="donate-text-paragraphs">
+              <p class="desc">{activeLang.donate_p1}</p>
+              <p class="desc">{activeLang.donate_p2}</p>
+              <p class="desc">{activeLang.donate_p3}</p>
+              <p class="desc">{activeLang.donate_p4}</p>
+            </div>
             <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" class="donate-btn-large">
-              🎁 Отправить донат (donationalerts.com)
+              {activeLang.btn_donate_da}
             </a>
           </div>
         </section>
@@ -691,17 +1049,7 @@
     margin-top: auto;
   }
 
-  .donate-link {
-    color: var(--accent-yellow);
-    text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: opacity 0.2s;
-  }
 
-  .donate-link:hover {
-    opacity: 0.8;
-  }
 
   /* Content Panel */
   .content-viewport {
@@ -807,6 +1155,35 @@
     font-size: 0.8rem;
     color: var(--text-dim);
     margin-top: 8px;
+  }
+
+  .threats-banner {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .support-inline-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.85rem;
+    font-family: var(--font-stack);
+    font-weight: 700;
+    color: var(--accent-yellow);
+    text-decoration: underline;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .support-inline-link:hover {
+    opacity: 0.8;
   }
 
   .controls-card {
@@ -1246,31 +1623,35 @@
     outline: none;
   }
 
-  .lang-switch-buttons {
+  .lang-selector-sidebar {
     display: flex;
-    gap: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 2px;
+    margin-top: 12px;
   }
 
-  .lang-btn {
-    width: 48px;
-    height: 36px;
-    border-radius: 6px;
-    background-color: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+  .lang-pill {
+    flex: 1;
+    background: none;
+    border: none;
     color: var(--text-dim);
+    padding: 6px 12px;
+    border-radius: 18px;
     cursor: pointer;
-    font-weight: 600;
+    font-size: 0.8rem;
+    font-weight: 700;
     transition: all 0.2s;
+    outline: none;
   }
 
-  .lang-btn:hover {
-    border-color: var(--accent-cyan);
-    color: #fff;
+  .lang-pill:hover {
+    color: var(--text-main);
   }
 
-  .lang-btn.active {
-    background-color: var(--accent-cyan);
-    border-color: var(--accent-cyan);
+  .lang-pill.active {
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
     color: #000;
   }
 
@@ -1296,13 +1677,187 @@
     margin-left: 12px;
   }
 
-  /* Help Tab */
+  /* Sound Custom Styles */
+  .sound-picker {
+    background-color: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    padding: 16px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .sound-picker-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+  }
+
+  .sound-mode-toggle {
+    display: flex;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 3px;
+    gap: 4px;
+  }
+
+  .toggle-pill {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .toggle-pill:hover {
+    color: var(--text-main);
+  }
+
+  .toggle-pill.active {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--accent-cyan);
+    font-weight: 600;
+  }
+
+  .file-upload-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+  }
+
+  .file-upload-btn {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-grow: 1;
+  }
+
+  .file-upload-btn:hover {
+    color: var(--accent-cyan);
+  }
+
+  .sound-btn-group {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-action {
+    background-color: rgba(57, 242, 236, 0.1);
+    border: 1px solid rgba(57, 242, 236, 0.3);
+    color: var(--accent-cyan);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+
+  .btn-action:hover {
+    background-color: rgba(57, 242, 236, 0.2);
+  }
+
+  .btn-action.reset {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-dim);
+  }
+
+  .btn-action.reset:hover {
+    background-color: rgba(231, 76, 60, 0.1);
+    border-color: rgba(231, 76, 60, 0.3);
+    color: var(--accent-red);
+  }
+
+  /* Help Tab FAQ Accordion */
   .help-content {
     display: flex;
     flex-direction: column;
     gap: 20px;
     max-width: 700px;
-    overflow-y: auto;
+  }
+
+  .faq-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .accordion-item {
+    background-color: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.25s ease;
+  }
+
+  .accordion-item.expanded {
+    border-color: rgba(57, 242, 236, 0.2);
+    box-shadow: 0 0 15px rgba(57, 242, 236, 0.03);
+  }
+
+  .accordion-header {
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    text-align: left;
+    outline: none;
+  }
+
+  .accordion-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-main);
+    transition: color 0.2s;
+  }
+
+  .accordion-header:hover h3 {
+    color: var(--accent-cyan);
+  }
+
+  .accordion-icon {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    transition: transform 0.2s;
+  }
+
+  .accordion-content {
+    padding: 0 20px 20px 20px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    animation: fadeIn 0.25s ease;
+  }
+
+  .accordion-short {
+    margin: 0 0 8px 0;
+    color: var(--text-main);
+  }
+
+  .accordion-full {
+    margin: 0;
+    color: var(--text-dim);
   }
 
   .info-card {
@@ -1324,12 +1879,53 @@
     color: var(--text-dim);
   }
 
-  .info-card ul {
-    margin: 8px 0 0 0;
-    padding-left: 20px;
+  /* Donate Tab */
+  .donate-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    min-height: 400px;
+  }
+
+  .donate-card {
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    text-align: center;
+    padding: 40px 32px;
+  }
+
+  .donate-emoji {
+    font-size: 4rem;
+    margin-bottom: 8px;
+    animation: bounce 2s infinite;
+  }
+
+  .donate-card h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .donate-text-paragraphs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: left;
+    margin: 12px 0;
+  }
+
+  .donate-card .desc {
+    margin: 0;
+    font-size: 0.95rem;
     color: var(--text-dim);
     line-height: 1.6;
-    font-size: 0.95rem;
   }
 
   .donate-btn-large {
@@ -1357,5 +1953,10 @@
   @keyframes slideIn {
     from { transform: translateX(100%); }
     to { transform: translateX(0); }
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
   }
 </style>

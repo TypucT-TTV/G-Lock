@@ -1,71 +1,55 @@
 ---
-name: poetry-build-automation
-description: Помогает агенту управлять зависимостями Poetry, запускать проверки линтерами (black, isort, mypy, flake8) и автоматизировать сборку проекта G-Lock в один исполняемый файл через PyInstaller.
+name: tauri-build-automation
+description: Помогает агенту собирать и упаковывать приложение G-Lock v2 на базе Tauri v2, компилировать нативный Rust бэкенд и развертывать сборки в NSIS и MSI инсталляторы.
 ---
 
-# Навык автоматизации сборки и проверок (Poetry & PyInstaller) в G-Lock
+# Навык автоматизации сборки и упаковки (Tauri v2) в G-Lock v2
 
-Этот навык содержит инструкции по управлению проектом с помощью инструмента Poetry, настройки линтеров и запуска процесса сборки в `.exe` файл для Windows.
-
----
-
-## 🛠️ Среда окружения Poetry
-
-Проект использует Poetry для изоляции зависимостей. Основные команды разработчика:
-
-* **Установка зависимостей**:
-  ```bash
-  poetry install
-  ```
-  Это установит библиотеки из [pyproject.toml](file:///g:/guardian-3.5.0/pyproject.toml) и зафиксирует версии в `poetry.lock`.
-* **Запуск скриптов**:
-  ```bash
-  poetry run python g_lock
-  ```
-  Запуск приложения G-Lock напрямую из исходного кода в изолированном виртуальном окружении.
+Этот навык содержит инструкции по локальной компиляции, сборке и упаковке приложения G-Lock v2.
 
 ---
 
-## 🔍 Линтинг и проверки качества кода
+## 🛠️ Сборка релиза Tauri
 
-Перед каждым коммитом код должен проверяться с помощью статических анализаторов. Вы можете запускать их как по отдельности, так и через `pre-commit` хуки.
+Сборка осуществляется через Node CLI с вызовом Tauri Bundler:
 
-* **Запуск форматирования (Black)**:
-  ```bash
-  poetry run black g_lock tests
+* **Команда полной сборки**:
+  ```powershell
+  npm run tauri build
   ```
-* **Запуск сортировки импортов (Isort)**:
-  ```bash
-  poetry run isort g_lock tests
+  Или через npx:
+  ```powershell
+  npx tauri build
   ```
-* **Запуск статической типизации (Mypy)**:
-  ```bash
-  poetry run mypy g_lock
-  ```
-* **Запуск линтера стилей (Flake8)**:
-  ```bash
-  poetry run pflake8 g_lock tests
-  ```
-  *(Примечание: используется `pflake8`, так как настройки flake8 заданы в `pyproject.toml`)*.
-* **Автоматические хуки (Pre-commit)**:
-  ```bash
-  poetry run pre-commit run --all-files
-  ```
+
+* **Что происходит во время сборки**:
+  1. Vite компилирует фронтенд (Svelte + TypeScript) в статические файлы в папку `build/`.
+  2. Cargo компилирует Rust бэкенд (`g-lock-tauri`) в режиме оптимизации (`release`).
+  3. Tauri упаковывает скомпилированные веб-ресурсы, бинарные файлы WinDivert и базу данных `db.json` в результирующие установщики.
+
+* **Результаты сборки**:
+  Готовые файлы сохраняются в директорию `src-tauri/target/release/bundle/`:
+  - `nsis/G-Lock_<версия>_x64-setup.exe` — установщик для Windows (NSIS).
+  - `msi/G-Lock_<версия>_x64_en-US.msi` — MSI-пакет.
 
 ---
 
-## 📦 Сборка исполняемого файла (.exe)
+## 📦 Копирование WinDivert бинарников
 
-Сборка осуществляется с помощью PyInstaller через встроенный скрипт Poetry:
+Для корректной работы сетевого бэкенда в директории релиза рядом с исполняемым файлом `g-lock-tauri.exe` обязательно должны находиться файлы драйвера WinDivert:
 
-* **Команда запуска сборки**:
-  ```bash
-  poetry run build
-  ```
-  Эта команда вызывает функцию `build` из модуля `g_lock.build` (см. `[tool.poetry.scripts]` в [pyproject.toml](file:///g:/guardian-3.5.0/pyproject.toml)).
-* **Скрипт сборки**:
-  Скрипт сборки [build.py](file:///g:/guardian-3.5.0/g_lock/build.py) конфигурирует параметры запуска PyInstaller:
-  - Сборка в один файл (`--onefile`).
-  - Отключение отображения консоли при старте (`--noconsole`).
-  - Упаковка необходимых ресурсов (таких как `db.json` и `data.json`).
-* **Итоговый файл**: Готовый `.exe` файл сохраняется в директорию `dist/`.
+```powershell
+Copy-Item -Path "src-tauri\WinDivert.dll" -Destination "src-tauri\target\release\WinDivert.dll" -Force
+Copy-Item -Path "src-tauri\WinDivert64.sys" -Destination "src-tauri\target\release\WinDivert64.sys" -Force
+```
+
+---
+
+## 🏷️ Процедура обновления версий (SemVer)
+
+При внесении любых изменений, исправлении багов или добавлении новых функций, строго выполняйте обновление версии во всех следующих файлах:
+
+1. [package.json](file:///g:/guardian-3.5.0/package.json): `"version": "X.Y.Z"`
+2. [Cargo.toml](file:///g:/guardian-3.5.0/src-tauri/Cargo.toml): `version = "X.Y.Z"`
+3. [tauri.conf.json](file:///g:/guardian-3.5.0/src-tauri/tauri.conf.json): `"version": "X.Y.Z"`
+4. [+page.svelte](file:///g:/guardian-3.5.0/src/routes/+page.svelte): Заголовок версии в интерфейсе (тег `<h2>G-Lock <span class="ver">vX.Y.Z</span></h2>`).
