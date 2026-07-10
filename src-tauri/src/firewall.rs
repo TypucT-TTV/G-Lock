@@ -483,12 +483,16 @@ fn get_udp_ports_for_pid(pid: u32) -> Vec<u16> {
     }
 }
 
+// Ports GTA5.exe may hold open for non-P2P traffic (HTTPS/QUIC to Rockstar
+// backend services, etc.) that must never be mistaken for the P2P game port.
+const NON_P2P_PORTS: [u16; 2] = [80, 443];
+
 pub fn get_gta_udp_port(default_port: u16) -> u16 {
     if let Some(pid) = get_pid_by_name("GTA5.exe") {
         let ports = get_udp_ports_for_pid(pid);
-        if !ports.is_empty() {
-            println!("Detected GTA5.exe running with PID {} on UDP port {}", pid, ports[0]);
-            return ports[0];
+        if let Some(&port) = ports.iter().find(|p| !NON_P2P_PORTS.contains(p)) {
+            println!("Detected GTA5.exe running with PID {} on UDP port {}", pid, port);
+            return port;
         }
     }
     default_port
