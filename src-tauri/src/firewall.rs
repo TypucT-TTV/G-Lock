@@ -199,15 +199,17 @@ fn build_dynamic_blacklist_table(ranges: &[ipnet::Ipv4Net]) -> Vec<Vec<ipnet::Ip
 
 pub fn load_dynamic_blacklist(app: &AppHandle) {
     let mut ranges = Vec::new();
+    log_system_message("SYSTEM: Starting load_dynamic_blacklist...");
 
     // 1. Fetch Take-Two EU and US prefixes dynamically from RIPE Stat
     for asn in &[202021, 46555] {
         match fetch_ripe_prefixes(*asn) {
             Ok(nets) => {
+                log_system_message(&format!("SYSTEM: Fetched {} prefixes for AS{}", nets.len(), asn));
                 ranges.extend(nets);
             }
             Err(e) => {
-                eprintln!("Failed to fetch RIPE prefixes for AS{}: {:?}", asn, e);
+                log_system_message(&format!("SYSTEM ERROR: Failed to fetch prefixes for AS{}: {:?}", asn, e));
             }
         }
     }
@@ -234,10 +236,16 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
     let mut db_content = None;
 
     if let Ok(resource_path) = app.path().resolve("db.json", BaseDirectory::Resource) {
+        log_system_message(&format!("SYSTEM: Resolved Tauri resource path to {:?}", resource_path));
         if resource_path.exists() {
+            log_system_message("SYSTEM: Resource file exists, loading...");
             if let Ok(content) = std::fs::read_to_string(&resource_path) {
                 db_content = Some(content);
+            } else {
+                log_system_message("SYSTEM ERROR: Failed to read resource db.json file.");
             }
+        } else {
+            log_system_message("SYSTEM: Resource path does not exist on disk.");
         }
     }
 
@@ -245,10 +253,14 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 let path = exe_dir.join("db.json");
+                log_system_message(&format!("SYSTEM: Resolved exe-adjacent path to {:?}", path));
                 if path.exists() {
+                    log_system_message("SYSTEM: Exe-adjacent file exists, loading...");
                     if let Ok(content) = std::fs::read_to_string(path) {
                         db_content = Some(content);
                     }
+                } else {
+                    log_system_message("SYSTEM: Exe-adjacent file does not exist.");
                 }
             }
         }
@@ -256,16 +268,21 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
 
     if db_content.is_none() {
         let path = std::path::Path::new("db.json");
+        log_system_message(&format!("SYSTEM: Resolved CWD relative path to {:?}", path));
         if path.exists() {
+            log_system_message("SYSTEM: CWD relative file exists, loading...");
             if let Ok(content) = std::fs::read_to_string(path) {
                 db_content = Some(content);
             }
+        } else {
+            log_system_message("SYSTEM: CWD relative file does not exist.");
         }
     }
 
     if let Some(content) = db_content {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(values) = val.get("values").and_then(|v| v.as_array()) {
+                let mut count = 0;
                 for cat in values {
                     if cat.get("name").and_then(|n| n.as_str()) == Some("AzureCloud") {
                         if let Some(prefixes) = cat.get("properties").and_then(|p| p.get("addressPrefixes")).and_then(|a| a.as_array()) {
@@ -273,20 +290,28 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
                                 if let Some(prefix_str) = p.as_str() {
                                     if let Ok(net) = prefix_str.parse::<ipnet::Ipv4Net>() {
                                         ranges.push(net);
+                                        count += 1;
                                     }
                                 }
                             }
                         }
                     }
                 }
+                log_system_message(&format!("SYSTEM: Successfully loaded {} Azure ranges from db.json.", count));
             }
+        } else {
+            log_system_message("SYSTEM ERROR: Failed to parse db.json as JSON.");
         }
+    } else {
+        log_system_message("SYSTEM WARNING: db.json could not be loaded from any source.");
     }
 
+    log_system_message(&format!("SYSTEM: Total dynamic blacklist size: {} ranges.", ranges.len()));
     let table = build_dynamic_blacklist_table(&ranges);
     let mut state = STATE.write();
     state.dynamic_blacklist = ranges;
     state.dynamic_blacklist_table = table;
+    log_system_message("SYSTEM: load_dynamic_blacklist finished successfully.");
 }
 
 pub fn update_subnets_cache() {
@@ -517,6 +542,17 @@ pub fn append_log_to_file(entry: &LogEntry) {
             let _ = writeln!(file, "{}", line);
         }
     }
+}
+
+pub fn log_system_message(msg: &str) {
+    let log = LogEntry {
+        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        ip: "SYSTEM".to_string(),
+        action: "INFO".to_string(),
+        size: 0,
+        reason: msg.to_string(),
+    };
+    append_log_to_file(&log);
 }
 
 #[derive(Default)]
@@ -767,5 +803,36 @@ mod tests {
         assert!(found_azure, "AzureCloud category must exist in db.json");
         assert!(ranges.len() > 1000, "Should load thousands of Azure ranges");
         println!("Loaded {} Azure ranges successfully", ranges.len());
+    }
+
+    #[test]
+    fn test_is_ip_relay_correctness() {
+        let mut ranges = Vec::new();
+        ranges.push("40.112.0.0/12".parse::<ipnet::Ipv4Net>().unwrap());
+        ranges.push("192.168.1.0/24".parse::<ipnet::Ipv4Net>().unwrap());
+        ranges.push("185.56.64.0/22".parse::<ipnet::Ipv4Net>().unwrap());
+        
+        let table = build_dynamic_blacklist_table(&ranges);
+        let state = FirewallState {
+            active_session: "Open".to_string(),
+            is_locked: false,
+            is_running: false,
+            whitelist: std::collections::HashSet::new(),
+            blacklist: std::collections::HashSet::new(),
+            dynamic_blacklist: ranges.clone(),
+            dynamic_blacklist_table: table,
+            config: crate::config::Config::default(),
+        };
+        
+        assert!(state.is_ip_relay("40.112.5.6"));
+        assert!(state.is_ip_relay("40.127.255.254"));
+        assert!(!state.is_ip_relay("40.128.0.1"));
+        
+        assert!(state.is_ip_relay("192.168.1.15"));
+        assert!(!state.is_ip_relay("192.168.2.1"));
+        
+        assert!(state.is_ip_relay("185.56.64.5"));
+        assert!(state.is_ip_relay("185.56.67.250"));
+        assert!(!state.is_ip_relay("185.56.68.1"));
     }
 }
