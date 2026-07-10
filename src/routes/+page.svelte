@@ -124,10 +124,42 @@
     settings = await invoke("get_settings");
   }
 
+  let zoomFactor = $state(1.0);
+
+  $effect(() => {
+    document.body.style.zoom = zoomFactor.toString();
+  });
+
   onMount(() => {
     fetchStatus();
     fetchLists();
     fetchSettings();
+
+    // Load zoom level
+    const savedZoom = localStorage.getItem("g_lock_zoom");
+    if (savedZoom) {
+      zoomFactor = parseFloat(savedZoom);
+    }
+
+    // Zoom keys listener (Ctrl + / Ctrl - / Ctrl 0)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey) {
+        if (e.key === "=" || e.key === "+") {
+          e.preventDefault();
+          zoomFactor = Math.min(zoomFactor + 0.1, 2.0);
+          localStorage.setItem("g_lock_zoom", zoomFactor.toString());
+        } else if (e.key === "-") {
+          e.preventDefault();
+          zoomFactor = Math.max(zoomFactor - 0.1, 0.5);
+          localStorage.setItem("g_lock_zoom", zoomFactor.toString());
+        } else if (e.key === "0") {
+          e.preventDefault();
+          zoomFactor = 1.0;
+          localStorage.setItem("g_lock_zoom", zoomFactor.toString());
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
 
     // Listen to Tauri events
     const statusUnsub = listen("status-changed", () => {
@@ -144,6 +176,7 @@
     });
 
     return () => {
+      window.removeEventListener("keydown", handleKeyDown);
       statusUnsub.then(fn => fn());
       listsUnsub.then(fn => fn());
       logUnsub.then(fn => fn());
@@ -155,7 +188,11 @@
   }
 
   async function handleStartSession(mode: string) {
-    status = await invoke("start_session", { sessionType: mode });
+    if (status.active_session === mode) {
+      await handleStopSession();
+    } else {
+      status = await invoke("start_session", { sessionType: mode });
+    }
   }
 
   async function handleStopSession() {
@@ -224,8 +261,8 @@
   <!-- Left Sidebar Navigation -->
   <aside class="sidebar">
     <div class="logo-container">
-      <div class="logo-hexagon">G</div>
-      <h2>G-Lock <span class="ver">v2.0</span></h2>
+      <img src="/logo.png" class="logo-img" alt="logo" />
+      <h2>G-Lock <span class="ver">v2.0.1</span></h2>
     </div>
 
     <nav class="nav-links">
@@ -587,6 +624,7 @@
     flex-direction: column;
     padding: 24px;
     box-sizing: border-box;
+    overflow-y: auto;
   }
 
   .logo-container {
@@ -596,16 +634,10 @@
     margin-bottom: 40px;
   }
 
-  .logo-hexagon {
-    width: 36px;
-    height: 36px;
-    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
-    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    color: #000;
+  .logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
   }
 
   .logo-container h2 {
@@ -675,7 +707,7 @@
   .content-viewport {
     flex-grow: 1;
     position: relative;
-    overflow: hidden;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     padding: 32px;

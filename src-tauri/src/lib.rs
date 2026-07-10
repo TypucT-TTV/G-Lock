@@ -21,6 +21,22 @@ fn toggle_lock(app: AppHandle) -> serde_json::Value {
     get_status()
 }
 
+pub fn update_window_icon(app: &AppHandle) {
+    use tauri::Manager;
+    use tauri::image::Image;
+    if let Some(window) = app.get_webview_window("main") {
+        let is_locked = STATE.read().is_locked;
+        let icon_bytes = if is_locked {
+            include_bytes!("../icons/icon_locked.png").as_slice()
+        } else {
+            include_bytes!("../icons/icon_open.png").as_slice()
+        };
+        if let Ok(icon) = Image::from_bytes(icon_bytes) {
+            let _ = window.set_icon(icon);
+        }
+    }
+}
+
 fn toggle_lock_logic(app: &AppHandle) {
     let mut sound_to_play = None;
     {
@@ -38,6 +54,7 @@ fn toggle_lock_logic(app: &AppHandle) {
         play_beep(freq, dur);
     }
     let _ = app.emit("status-changed", ());
+    update_window_icon(app);
 }
 
 #[tauri::command]
@@ -51,6 +68,7 @@ fn start_session(session_type: String, app: AppHandle) -> serde_json::Value {
     }
     start_firewall(app.clone());
     let _ = app.emit("status-changed", ());
+    update_window_icon(&app);
     get_status()
 }
 
@@ -62,6 +80,7 @@ fn stop_session(app: AppHandle) -> serde_json::Value {
         state.is_locked = false;
     }
     let _ = app.emit("status-changed", ());
+    update_window_icon(&app);
     get_status()
 }
 
@@ -218,6 +237,38 @@ pub fn run() {
             }
 
             start_hotkey_listener(handle.clone());
+            // Set initial window icon
+            update_window_icon(&handle);
+
+            // Restore window size and position, and register save-on-close event
+            if let Some(window) = app.get_webview_window("main") {
+                let config = STATE.read().config.clone();
+                if let (Some(w_val), Some(h_val)) = (config.window_width, config.window_height) {
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: w_val, height: h_val }));
+                }
+                if let (Some(x_val), Some(y_val)) = (config.window_x, config.window_y) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: x_val, y: y_val }));
+                }
+
+                let w_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
+                            if let Ok(physical_size) = w_clone.inner_size() {
+                                if let Ok(physical_pos) = w_clone.outer_position() {
+                                    let mut state = STATE.write();
+                                    state.config.window_width = Some(physical_size.width);
+                                    state.config.window_height = Some(physical_size.height);
+                                    state.config.window_x = Some(physical_pos.x);
+                                    state.config.window_y = Some(physical_pos.y);
+                                    let _ = save_config(&state.config);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             // Start default open session
             start_firewall(handle);
             Ok(())

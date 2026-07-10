@@ -11,109 +11,78 @@ operates at the network packet level (via the WinDivert driver).
 
 LAUNCHING
 ---------
-G-Lock MUST be run as Administrator — without that, the WinDivert driver
-can't be registered, and the app will refuse to start (it will show a
-message explaining this).
+When launched, G-Lock will automatically request Administrator privileges (via UAC).
+This is required to register the WinDivert driver and capture network packets.
 
 MAIN WINDOW
 -----------
 At the top: a colored indicator and a text status:
-  * Green / "Open"            — session open for everyone except players in your blacklist (runs PrivateSession with locked=False in the background).
-  * Red / "LOCKED"            — a Locked session is active (runs PrivateSession with locked=True, blocks new joins).
-  * "Active: Solo"            — Solo session is currently running (SoloSession).
+  * Green / "OPEN"            — session open for everyone except players in your blacklist.
+  * Red / "LOCKED"            — new player joins are blocked (background filter drops incoming P2P packets).
 
-The app's taskbar icon also changes color (green/red) in sync with this
-status.
+The app's taskbar icon also changes color dynamically:
+  * Green circle — "Open" mode (safe, default background filtering active).
+  * Red circle   — "Locked" mode (new join attempts are blocked).
 
 "STOP SESSION" BUTTON
 ----------------------
-A separate button specifically for TURNING OFF whatever mode is currently
-active. Clicking it disables the active mode and returns to the default "Open" background blacklist filter state.
+Disables the active filtration mode and returns the firewall to the default "Open" background blacklist filter state.
 
-SESSION MODE BUTTONS (each has an indicator dot on the left)
---------------------------------------------------------------
-The dot next to each button lights up green if that specific mode is the
-one currently active.
+SESSION MODE BUTTONS
+---------------------
+Each button toggles the respective filtration mode on or off (clicking an active mode turns it off):
 
 1. Lock Session
-   Blocks NEW join attempts, but doesn't touch anyone already inside. This
-   exact same thing can be toggled with the F9 hotkey (see below).
-   NOTE: While locked, matchmaking packets are blocked. To switch to another populated session, you MUST first unlock the session (F9 or "Open" in the GUI), search for a new session, and lock it again (F9) only after you successfully join. Service packets (Heartbeats) are always allowed to prevent any Social Club or cloud save connection issues.
+   Blocks new players from entering your session, but doesn't disconnect anyone already inside.
+   * This mode can be toggled using the F9 hotkey inside the game.
+   * NOTE: While locked, matchmaking packets are blocked. Before joining another populated session, unlock the firewall (F9 or "Stop Session"), join the new lobby, and lock it again (F9) once loaded.
 
 2. Solo Session
-   No one can connect to you, but critical R* and Social Club traffic still
-   goes through. If you were in a session with others, they'll lose
-   connection to you.
+   Blocks all incoming connections from other players. Your current session will split, leaving you completely alone in the lobby. Critical Rockstar and Social Club connection traffic remains allowed.
 
-3. Empty Session
-   Splits you off from the current session so you're alone — guaranteeing
-   you become its host.
+3. Whitelist Session
+   Only allows connections from IP addresses and subnets in your Whitelist. All other connections are automatically blocked.
 
 F9 HOTKEY
 ---------
-F9 is a separate, standalone toggle specifically for "Locked Session". It
-does NOT require pressing any other button first — it works on its own,
-even while GTA has focus and is running in exclusive fullscreen.
-  * Press F9              — the session locks, no new joins.
-  * Press F9 again         — open to everyone again.
-Note: G-Lock only ever keeps ONE filter active at a time. If another
-session type was already running (e.g. Solo), F9 will REPLACE it
-with Lock. Pressing F9 again returns you to "Open", not back to whatever
-was running before.
+F9 on your keyboard is a global toggle specifically for the "Lock Session" mode.
+  * Works globally even when the GTA game window is focused and running in full screen.
+  * Press F9 — locks the session.
+  * Press F9 again — unlocks the session.
+  * Emergency panic unlock is also available via Ctrl + F9.
+
+INTERFACE ZOOM CONTROL
+-----------------------
+You can scale the interface to fit high-resolution screens:
+  * Ctrl + (or Ctrl =) — zoom in.
+  * Ctrl - — zoom out.
+  * Ctrl 0 — reset zoom to 100%.
+  Your zoom preference is saved and applied automatically on the next launch.
 
 ADAPTIVE FLOOD DETECTOR (IPS)
 -----------------------------
-G-Lock includes an intelligent system to detect network flood attacks:
-  * For the first 45 seconds after session startup, G-Lock measures normal background traffic patterns from peers (excluding whitelisted friends, service sizes, or LAN).
-  * After 45 seconds, the dynamic threshold is calculated: the measured max PPS multiplied by an adaptive flood multiplier (default: 5). These multipliers and fallback limits are configurable in the "Settings" menu.
-  * If a peer exceeds this threshold with suspicious packets, they are banned for a cooldown period (default: 60 seconds) to prevent session lags.
-  * Rockstar/Azure relays are exempt from IPS bans to avoid cloud save/sync errors, but can still trigger auto-lock actions if the corresponding checkbox in Settings is active.
+G-Lock includes an intelligent Intrusion Prevention System (IPS):
+  * On session start, G-Lock measures normal background traffic from peers (default: 45 seconds).
+  * A dynamic Packets Per Second (PPS) threshold is calculated. If a peer exceeds this threshold, they are banned for a cooldown period (default: 60 seconds) to prevent session lags.
+  * Rockstar/Azure relays are fully exempt from IPS bans to avoid cloud save/sync errors.
 
 CONNECTION LOG & INTERACTIVE PANEL
-----------------------------------------
-G-Lock keeps a passive log of all connections and displays it in real-time in the right panel of the main window.
+----------------------------------
+G-Lock shows connection logs in real-time.
 
-Before each row, two action buttons are displayed:
-  * `🟢` (WL) — instantly add the IP address to the Whitelist.
-  * `🔴` (BL) — instantly add the IP address to the Blacklist.
+Quick buttons next to each row:
+  * `🟢` (WL) — instantly add the player's IP to the Whitelist.
+  * `🔴` (BL) — instantly add the player's IP to the Blacklist.
 
-The panel features intuitive color coding:
-  * Yellow — whitelisted friends (to immediately see when whitelisted players join).
-  * Green  — regular allowed direct P2P player connections.
-  * Blue   — connections passing through Rockstar/Azure relays (tagged as `[RELAY R*]`).
-  * Red    — blocked packet attempts.
-  * Grey   — service/passive packets.
-
-Quick log actions (right-click a row in the log table):
-  * "Copy IP" — copy the player's IP address (the relay tag is stripped automatically).
-  * "Add to Whitelist" / "Add to Blacklist" — quickly add the IP to your lists on the fly without dialog confirmations or name prompts. The rules will reload automatically.
-
-Logs are saved as UTF-8 files in the "logs" folder next to the app, keeping only the 10 most recent days.
+Color coding:
+  * Yellow — whitelisted friends (to see when friends join).
+  * Green  — normal allowed P2P player connections.
+  * Blue   — transit connections through Rockstar servers (`[RELAY R*]`).
+  * Red    — blocked connection attempts.
 
 EDIT LISTS (WHITELIST / BLACKLIST)
-------------------------------------
-The "Edit lists" button opens a window with Whitelist / Blacklist tabs.
-You can manage entries manually:
-  * Add    — add new IP.
-  * Edit   — edit selected IP.
-  * Delete — delete selected IP.
-  * Clear  — clear the entire list (very convenient since player IPs change frequently).
-Lists contain only IP addresses and subnets in CIDR format (e.g. 52.139.168.0/24). Names are removed to support instant one-click additions.
-Any list modifications immediately trigger a background session reload.
-
-LANGUAGE SWITCHER
-------------------
-At the bottom of the window: "RU" / "EN" buttons. They switch the entire
-interface's language on the fly, and your choice is remembered across
-restarts.
-
-SUPPORT THE AUTHOR
--------------------
-The "Thank ТурисТ" button opens a donation page in your browser:
-https://www.donationalerts.com/r/typuct_donate
-
-IF SOMETHING GOES WRONG
--------------------------
-On any failure, the app saves a crashreport_*.log file next to itself and
-shows a window describing the error — this is a deliberate safeguard
-against silently vanishing without a trace, not a bug.
+----------------------------------
+The "Lists" tab allows you to manage whitelist and blacklist addresses:
+  * You can manually add, edit, or delete IP addresses and subnets in CIDR format (e.g. `192.168.1.0/24`).
+  * The "Clear" button resets the list.
+  * Any list modifications take effect immediately without restarting the firewall.

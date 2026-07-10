@@ -426,6 +426,7 @@ pub fn start_firewall(app: AppHandle) {
                                 }
                             }
                             let _ = app.emit("status-changed", ());
+                            crate::update_window_icon(&app);
                             // Re-acquire read lock
                             // Since we drop and lock is now completed, we just recreate local reference
                         }

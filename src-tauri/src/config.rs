@@ -31,6 +31,10 @@ pub struct Config {
     pub ips_adaptive_multiplier: u32,
     pub ips_adaptive_measurement_seconds: u32,
     pub ips_fallback_threshold: u32,
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
 }
 
 impl Default for Config {
@@ -61,6 +65,10 @@ impl Default for Config {
             ips_adaptive_multiplier: 5,
             ips_adaptive_measurement_seconds: 45,
             ips_fallback_threshold: 250,
+            window_width: None,
+            window_height: None,
+            window_x: None,
+            window_y: None,
         }
     }
 }
@@ -110,6 +118,18 @@ pub fn load_config() -> Config {
                     }
                     if let Some(val) = val.get("ips_fallback_threshold").and_then(|v| v.as_u64()) {
                         cfg.ips_fallback_threshold = val as u32;
+                    }
+                    if let Some(val) = val.get("window_width").and_then(|v| v.as_u64()) {
+                        cfg.window_width = Some(val as u32);
+                    }
+                    if let Some(val) = val.get("window_height").and_then(|v| v.as_u64()) {
+                        cfg.window_height = Some(val as u32);
+                    }
+                    if let Some(val) = val.get("window_x").and_then(|v| v.as_i64()) {
+                        cfg.window_x = Some(val as i32);
+                    }
+                    if let Some(val) = val.get("window_y").and_then(|v| v.as_i64()) {
+                        cfg.window_y = Some(val as i32);
                     }
                     let _ = save_config(&cfg);
                     return cfg;
