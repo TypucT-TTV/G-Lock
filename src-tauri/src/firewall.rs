@@ -620,6 +620,9 @@ pub fn start_firewall(app: AppHandle) {
             let parsed = match parse_ipv4_udp(&packet.data) {
                 Some(p) => p,
                 None => {
+                    let hex_data: String = packet.data.iter().take(20).map(|b| format!("{:02X}", b)).collect::<Vec<String>>().join(" ");
+                    let addr_info = format!("outbound={}, loopback={}, sniffed={}", packet.address.outbound(), packet.address.loopback(), packet.address.sniffed());
+                    log_system_message(&format!("SYSTEM ERROR: Unparsed packet (Len: {}, Hex: [{}], Addr: {}). Trying to send...", packet.data.len(), hex_data, addr_info));
                     if let Err(e) = w.send(&packet) {
                         log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (unparsed): {:?}", e));
                     }
