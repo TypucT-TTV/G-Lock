@@ -584,7 +584,7 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.25</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.26</span></h2>
     </div>
 
     <nav class="nav-links">
