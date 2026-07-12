@@ -302,17 +302,23 @@ pub fn run() {
                     let sys_res = app.path().resolve("WinDivert64.sys", BaseDirectory::Resource);
 
                     if let Ok(dll_path) = dll_res {
+                        firewall::log_system_message(&format!("SYSTEM: Resolved dll resource path to {:?}", dll_path));
                         let dest = exe_dir.join("WinDivert.dll");
                         if dll_path.exists() {
                             let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&dll_path, &dest);
+                        } else {
+                            firewall::log_system_message("SYSTEM WARNING: Resolved dll resource file does not exist!");
                         }
                     }
                     if let Ok(sys_path) = sys_res {
+                        firewall::log_system_message(&format!("SYSTEM: Resolved sys resource path to {:?}", sys_path));
                         let dest = exe_dir.join("WinDivert64.sys");
                         if sys_path.exists() {
                             let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&sys_path, &dest);
+                        } else {
+                            firewall::log_system_message("SYSTEM WARNING: Resolved sys resource file does not exist!");
                         }
                     }
                 }
