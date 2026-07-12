@@ -303,13 +303,15 @@ pub fn run() {
 
                     if let Ok(dll_path) = dll_res {
                         let dest = exe_dir.join("WinDivert.dll");
-                        if !dest.exists() && dll_path.exists() {
+                        if dll_path.exists() {
+                            let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&dll_path, &dest);
                         }
                     }
                     if let Ok(sys_path) = sys_res {
                         let dest = exe_dir.join("WinDivert64.sys");
-                        if !dest.exists() && sys_path.exists() {
+                        if sys_path.exists() {
+                            let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&sys_path, &dest);
                         }
                     }
