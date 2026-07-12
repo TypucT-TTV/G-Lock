@@ -318,7 +318,15 @@ pub fn run() {
                     if let Ok(dll_path) = dll_res {
                         firewall::log_system_message(&format!("SYSTEM: Resolved dll resource path to {:?}", dll_path));
                         let dest = exe_dir.join("WinDivert.dll");
-                        if dll_path.exists() && dll_path != dest {
+                        let should_copy = if !dest.exists() {
+                            true
+                        } else {
+                            match (dll_path.canonicalize(), dest.canonicalize()) {
+                                (Ok(p1), Ok(p2)) => p1 != p2,
+                                _ => true,
+                            }
+                        };
+                        if should_copy && dll_path.exists() {
                             let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&dll_path, &dest);
                         } else if !dll_path.exists() {
@@ -328,7 +336,15 @@ pub fn run() {
                     if let Ok(sys_path) = sys_res {
                         firewall::log_system_message(&format!("SYSTEM: Resolved sys resource path to {:?}", sys_path));
                         let dest = exe_dir.join("WinDivert64.sys");
-                        if sys_path.exists() && sys_path != dest {
+                        let should_copy = if !dest.exists() {
+                            true
+                        } else {
+                            match (sys_path.canonicalize(), dest.canonicalize()) {
+                                (Ok(p1), Ok(p2)) => p1 != p2,
+                                _ => true,
+                            }
+                        };
+                        if should_copy && sys_path.exists() {
                             let _ = fs::remove_file(&dest);
                             let _ = fs::copy(&sys_path, &dest);
                         } else if !sys_path.exists() {
