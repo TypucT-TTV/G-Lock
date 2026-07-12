@@ -756,6 +756,8 @@ fn run_packet_capture(app: AppHandle, port: u16) {
             reason = "LAN".to_string();
         } else if HEARTBEAT_SIZES.contains(&payload_len) {
             reason = "Service/Heartbeat".to_string();
+        } else if active_session == "Whitelist" && is_relay {
+            reason = "Whitelist Mode - Relay Allowed for Handshake".to_string();
         } else {
             match active_session.as_str() {
                 "Solo" => {
@@ -949,11 +951,13 @@ mod tests {
             active_session: "Open".to_string(),
             is_locked: false,
             is_running: false,
+            driver_error: None,
             whitelist: std::collections::HashSet::new(),
             blacklist: std::collections::HashSet::new(),
             dynamic_blacklist: ranges.clone(),
             dynamic_blacklist_table: table,
             config: crate::config::Config::default(),
+            current_port: 6672,
         };
         
         assert!(state.is_ip_relay("40.112.5.6"));
