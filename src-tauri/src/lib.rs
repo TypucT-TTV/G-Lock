@@ -49,7 +49,14 @@ fn toggle_lock_logic(app: &AppHandle) {
         state.is_locked = !state.is_locked;
         is_locked = state.is_locked;
         sound_enabled = state.config.sound_enabled;
+        
+        if is_locked {
+            state.active_session = "Lock".to_string();
+        } else {
+            state.active_session = "Open".to_string();
+        }
     }
+    
     if sound_enabled {
         let sound_name = if is_locked { "lock" } else { "unlock" };
         let _ = app.emit("play-sound", sound_name);
@@ -392,7 +399,7 @@ pub fn run() {
                         tauri::WindowEvent::CloseRequested { .. } => {
                             let state = STATE.read();
                             let _ = save_config(&state.config);
-                            firewall::stop_firewall_worker();
+                            firewall::shutdown_firewall();
                         }
                         _ => {}
                     }
@@ -422,7 +429,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                firewall::stop_firewall_worker();
+                firewall::shutdown_firewall();
             }
         });
 }

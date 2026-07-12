@@ -32,6 +32,7 @@ pub struct FirewallState {
     pub dynamic_blacklist: Vec<ipnet::Ipv4Net>,
     pub dynamic_blacklist_table: Vec<Vec<ipnet::Ipv4Net>>,
     pub config: crate::config::Config,
+    pub current_port: u16,
 }
 
 impl FirewallState {
@@ -131,6 +132,7 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
         dynamic_blacklist: Vec::new(),
         dynamic_blacklist_table: vec![Vec::new(); 65536],
         config,
+        current_port: 6672,
     }))
 });
 
@@ -145,6 +147,8 @@ impl FirewallState {
 
 // Global thread control
 static STOP_FLAG: Lazy<Arc<RwLock<bool>>> = Lazy::new(|| Arc::new(RwLock::new(false)));
+static GLOBAL_EXIT_FLAG: Lazy<Arc<RwLock<bool>>> = Lazy::new(|| Arc::new(RwLock::new(false)));
+static PORT_MONITOR_RUNNING: Lazy<Arc<RwLock<bool>>> = Lazy::new(|| Arc::new(RwLock::new(false)));
 
 fn fetch_ripe_prefixes(asn: u32) -> Result<Vec<ipnet::Ipv4Net>, Box<dyn std::error::Error>> {
     let url = format!("https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{}", asn);
@@ -571,245 +575,308 @@ struct RateStats {
 
 
 pub fn start_firewall(app: AppHandle) {
-    let running = STATE.read().is_running;
-    if running {
+    let mut pm_running = PORT_MONITOR_RUNNING.write();
+    if *pm_running {
         return;
     }
-    {
-        let mut state = STATE.write();
-        state.is_running = true;
-        state.driver_error = None;
-    }
-    *STOP_FLAG.write() = false;
+    *pm_running = true;
+    *GLOBAL_EXIT_FLAG.write() = false;
 
     // Load initial dynamic blacklist
     load_dynamic_blacklist(&app);
 
+    let app_clone = app.clone();
     std::thread::spawn(move || {
-        let port = get_gta_udp_port(6672);
-        let filter = format!("udp.DstPort == {} and udp.PayloadLength > 0 and ip", port);
-        log_system_message(&format!("SYSTEM: Opening WinDivert on UDP port {} (filter: {})", port, filter));
+        log_system_message("SYSTEM: Port monitor thread started.");
 
-        let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(&filter, 0, WinDivertFlags::default()) {
-            Ok(handle) => handle,
-            Err(e) => {
-                let err_msg = format!("{:?}", e);
-                eprintln!("Failed to open WinDivert handle: {}", err_msg);
-                log_system_message(&format!("SYSTEM ERROR: Failed to open WinDivert handle: {}", err_msg));
+        while !*GLOBAL_EXIT_FLAG.read() {
+            let detected_port = get_gta_udp_port(6672);
+            let current_port = STATE.read().current_port;
+            let is_running = STATE.read().is_running;
+
+            if detected_port != current_port || !is_running {
+                log_system_message(&format!(
+                    "SYSTEM: Port mismatch or capture thread down. Detected: {}, Current: {}, Running: {}. Restarting packet capture...",
+                    detected_port, current_port, is_running
+                ));
+
+                // 1. Stop current capture thread
+                stop_firewall_worker();
+
+                // Sleep for a short duration to ensure driver service stops and handle is released
+                std::thread::sleep(Duration::from_millis(500));
+
+                // 2. Reset stop flag and set port
+                *STOP_FLAG.write() = false;
                 {
                     let mut state = STATE.write();
-                    state.is_running = false;
-                    state.driver_error = Some(err_msg);
+                    state.current_port = detected_port;
+                    state.is_running = true;
+                    state.driver_error = None;
                 }
-                let _ = app.emit("status-changed", ());
-                return;
+                let _ = app_clone.emit("status-changed", ());
+
+                // 3. Spawn the actual packet capture thread
+                let capture_app = app_clone.clone();
+                std::thread::spawn(move || {
+                    run_packet_capture(capture_app, detected_port);
+                });
+            }
+
+            // Sleep 2 seconds before checking again
+            std::thread::sleep(Duration::from_secs(2));
+        }
+
+        *PORT_MONITOR_RUNNING.write() = false;
+        log_system_message("SYSTEM: Port monitor thread exiting.");
+    });
+}
+
+fn run_packet_capture(app: AppHandle, port: u16) {
+    let filter = format!("udp.DstPort == {} and udp.PayloadLength > 0 and ip", port);
+    log_system_message(&format!("SYSTEM: Opening WinDivert on UDP port {} (filter: {})", port, filter));
+
+    let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(&filter, 0, WinDivertFlags::default()) {
+        Ok(handle) => handle,
+        Err(e) => {
+            let err_msg = format!("{:?}", e);
+            eprintln!("Failed to open WinDivert handle: {}", err_msg);
+            log_system_message(&format!("SYSTEM ERROR: Failed to open WinDivert handle: {}", err_msg));
+            {
+                let mut state = STATE.write();
+                state.is_running = false;
+                state.driver_error = Some(err_msg);
+            }
+            let _ = app.emit("status-changed", ());
+            return;
+        }
+    };
+    log_system_message("SYSTEM: WinDivert handle opened successfully, packet capture started.");
+
+    let session_start = Instant::now();
+    let mut rates: HashMap<String, RateStats> = HashMap::new();
+    let mut temp_blacklist: HashMap<String, Instant> = HashMap::new();
+    let mut measured_max_pps = 0;
+    let mut adaptive_calibrated = false;
+    let mut current_threshold = STATE.read().config.ips_fallback_threshold as usize;
+
+    let mut last_log_time: HashMap<String, Instant> = HashMap::new();
+    let mut known_allowed: HashSet<String> = HashSet::new();
+    let mut last_session = STATE.read().active_session.clone();
+    let mut last_locked = STATE.read().is_locked;
+    let mut buf = [0u8; 65535];
+
+    while !*STOP_FLAG.read() {
+        let packet = match w.recv(Some(&mut buf)) {
+            Ok(p) => p,
+            Err(e) => {
+                log_system_message(&format!("SYSTEM ERROR: WinDivert recv failed, capture loop exiting: {:?}", e));
+                break;
             }
         };
-        log_system_message("SYSTEM: WinDivert handle opened successfully, packet capture started.");
 
-        let session_start = Instant::now();
-        let mut rates: HashMap<String, RateStats> = HashMap::new();
-        let mut temp_blacklist: HashMap<String, Instant> = HashMap::new();
-        let mut measured_max_pps = 0;
-        let mut adaptive_calibrated = false;
-        let mut current_threshold = STATE.read().config.ips_fallback_threshold as usize;
-
-        let mut last_log_time: HashMap<String, Instant> = HashMap::new();
-        let mut known_allowed: HashSet<String> = HashSet::new();
-        let mut last_session = STATE.read().active_session.clone();
-        let mut last_locked = STATE.read().is_locked;
-        let mut buf = [0u8; 65535];
-
-        while !*STOP_FLAG.read() {
-            let packet = match w.recv(Some(&mut buf)) {
-                Ok(p) => p,
-                Err(e) => {
-                    log_system_message(&format!("SYSTEM ERROR: WinDivert recv failed, capture loop exiting: {:?}", e));
-                    break;
-                }
-            };
-
-            let parsed = match parse_ipv4_udp(&packet.data) {
-                Some(p) => p,
-                None => {
-                    let hex_data: String = packet.data.iter().take(20).map(|b| format!("{:02X}", b)).collect::<Vec<String>>().join(" ");
-                    let addr_info = format!("outbound={}, loopback={}, sniffed={}", packet.address.outbound(), packet.address.loopback(), packet.address.sniffed());
-                    log_system_message(&format!("SYSTEM ERROR: Unparsed packet (Len: {}, Hex: [{}], Addr: {}). Trying to send...", packet.data.len(), hex_data, addr_info));
-                    if let Err(e) = w.send(&packet) {
-                        log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (unparsed): {:?}", e));
-                    }
-                    continue;
-                }
-            };
-
-            let ip_src = parsed.src_ip;
-            let payload_len = parsed.payload_len;
-            let now = Instant::now();
-
-            let state = STATE.read();
-            let active_session = state.active_session.clone();
-            let is_locked = state.is_locked;
-
-            if active_session != last_session || is_locked != last_locked {
-                known_allowed.clear();
-                last_session = active_session.clone();
-                last_locked = is_locked;
+        // IMMEDIATELY BYPASS OUTBOUND PACKETS
+        if packet.address.outbound() {
+            if let Err(e) = w.send(&packet) {
+                log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (outbound): {:?}", e));
             }
+            continue;
+        }
 
-            let is_service = HEARTBEAT_SIZES.contains(&payload_len) || MATCHMAKING_SIZES.contains(&payload_len);
-            let is_friend = state.is_ip_whitelisted(&ip_src);
-            let is_lan = is_lan_ip(&ip_src);
-            let is_relay = state.is_ip_relay(&ip_src);
-            let is_suspicious = !is_service && !is_friend && !is_lan;
-
-            // Handle temporary ban
-            let mut is_banned = false;
-            if state.config.ips_enabled {
-                if let Some(&ban_until) = temp_blacklist.get(&ip_src) {
-                    if now < ban_until {
-                        is_banned = true;
-                    } else {
-                        temp_blacklist.remove(&ip_src);
-                    }
-                }
-            }
-
-            // Decide allow/block
-            let mut decision = true;
-            let mut reason = "Allow".to_string();
-
-            if known_allowed.contains(&ip_src) {
-                reason = "Known Allowed".to_string();
-            } else if is_banned {
-                decision = false;
-                reason = "Blocked - Flood Protection".to_string();
-            } else if state.is_ip_blacklisted(&ip_src) {
-                decision = false;
-                reason = "Blocked - Blacklist".to_string();
-            } else {
-                match active_session.as_str() {
-                    "Solo" => {
-                        if !is_friend && !is_lan {
-                            decision = false;
-                            reason = "Blocked - Solo Session".to_string();
-                        }
-                    }
-                    "Whitelist" => {
-                        if !is_friend && !is_lan {
-                            decision = false;
-                            reason = "Blocked - Whitelist Only".to_string();
-                        }
-                    }
-                    _ => {
-                        if is_locked {
-                            if !is_friend && !is_lan && MATCHMAKING_SIZES.contains(&payload_len) {
-                                decision = false;
-                                reason = "Blocked - Locked Session".to_string();
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Always allow Heartbeats
-            if HEARTBEAT_SIZES.contains(&payload_len) {
-                decision = true;
-                reason = "Service/Heartbeat".to_string();
-            }
-
-            // Cache allowed IP addresses
-            if decision {
-                known_allowed.insert(ip_src.clone());
-            }
-
-            // Update Rate Stats
-            let stats = rates.entry(ip_src.clone()).or_insert_with(|| RateStats {
-                window_start: Some(now),
-                ..Default::default()
-            });
-
-            stats.count += 1;
-            if is_suspicious {
-                stats.suspicious_count += 1;
-            }
-
-            if let Some(win_start) = stats.window_start {
-                if now.duration_since(win_start) >= Duration::from_secs(1) {
-                    let pps = stats.suspicious_count;
-                    stats.window_start = Some(now);
-                    stats.count = 0;
-                    stats.suspicious_count = 0;
-
-                    // Calibrate adaptive IPS
-                    if !adaptive_calibrated {
-                        let elapsed = now.duration_since(session_start);
-                        if elapsed < Duration::from_secs(state.config.ips_adaptive_measurement_seconds as u64) {
-                            if !is_friend && !is_lan {
-                                measured_max_pps = measured_max_pps.max(pps);
-                            }
-                        } else {
-                            if measured_max_pps > 0 {
-                                current_threshold = measured_max_pps.max(5) * state.config.ips_adaptive_multiplier as usize;
-                            } else {
-                                current_threshold = state.config.ips_fallback_threshold as usize;
-                            }
-                            adaptive_calibrated = true;
-                        }
-                    }
-
-                    // Check for Attack & Ban
-                    if state.config.ips_enabled && !is_friend && !is_lan && !is_relay && pps >= current_threshold {
-                        temp_blacklist.insert(ip_src.clone(), now + Duration::from_secs(state.config.ips_ban_duration as u64));
-                    }
-
-                    // Trigger Auto-Lock or Alarm
-                    if state.config.ips_enabled && pps >= current_threshold {
-                        if state.config.sound_enabled {
-                            let _ = app.emit("play-sound", "ips");
-                        }
-                        if state.config.auto_lock_on_attack && !state.is_locked {
-                            drop(state);
-                            {
-                                let mut state_write = STATE.write();
-                                state_write.is_locked = true;
-                            }
-                            let _ = app.emit("status-changed", ());
-                            crate::update_window_icon(&app);
-                        }
-                    }
-                }
-            }
-
-            // Emit to log if it's a matchmaking request or blocked/yellow highlighted friend, with cooldown
-            let should_log = !decision || is_friend || is_relay || MATCHMAKING_SIZES.contains(&payload_len);
-            if should_log {
-                let throttle = last_log_time.get(&ip_src);
-                if throttle.is_none() || now.duration_since(*throttle.unwrap()) >= Duration::from_secs(15) {
-                    last_log_time.insert(ip_src.clone(), now);
-
-                    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                    let action = if decision { "ALLOW".to_string() } else { "BLOCK".to_string() };
-                    let log = LogEntry {
-                        timestamp,
-                        ip: ip_src.clone(),
-                        action,
-                        size: payload_len,
-                        reason: reason.clone(),
-                    };
-                    let _ = app.emit("connection-log", log.clone());
-                    append_log_to_file(&log);
-                }
-            }
-
-            if decision {
+        let parsed = match parse_ipv4_udp(&packet.data) {
+            Some(p) => p,
+            None => {
+                let hex_data: String = packet.data.iter().take(20).map(|b| format!("{:02X}", b)).collect::<Vec<String>>().join(" ");
+                let addr_info = format!("outbound={}, loopback={}, sniffed={}", packet.address.outbound(), packet.address.loopback(), packet.address.sniffed());
+                log_system_message(&format!("SYSTEM ERROR: Unparsed packet (Len: {}, Hex: [{}], Addr: {}). Trying to send...", packet.data.len(), hex_data, addr_info));
                 if let Err(e) = w.send(&packet) {
-                    log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (allowed): {:?}", e));
+                    log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (unparsed): {:?}", e));
+                }
+                continue;
+            }
+        };
+
+        let ip_src = parsed.src_ip;
+        let payload_len = parsed.payload_len;
+        let now = Instant::now();
+
+        let state = STATE.read();
+        let active_session = state.active_session.clone();
+        let is_locked = state.is_locked;
+
+        if active_session != last_session || is_locked != last_locked {
+            known_allowed.clear();
+            last_session = active_session.clone();
+            last_locked = is_locked;
+        }
+
+        let is_service = HEARTBEAT_SIZES.contains(&payload_len) || MATCHMAKING_SIZES.contains(&payload_len);
+        let is_friend = state.is_ip_whitelisted(&ip_src);
+        let is_lan = is_lan_ip(&ip_src);
+        let is_relay = state.is_ip_relay(&ip_src);
+        let is_suspicious = !is_service && !is_friend && !is_lan;
+
+        // Handle temporary ban
+        let mut is_banned = false;
+        if state.config.ips_enabled {
+            if let Some(&ban_until) = temp_blacklist.get(&ip_src) {
+                if now < ban_until {
+                    is_banned = true;
+                } else {
+                    temp_blacklist.remove(&ip_src);
                 }
             }
         }
 
-        STATE.write().is_running = false;
-    });
+        // Decide allow/block
+        let mut decision = true;
+        let mut reason = "Allow".to_string();
+        let mut should_cache = false;
+
+        if known_allowed.contains(&ip_src) {
+            reason = "Known Allowed".to_string();
+            should_cache = true;
+        } else if is_banned {
+            decision = false;
+            reason = "Blocked - Flood Protection".to_string();
+        } else if state.is_ip_blacklisted(&ip_src) {
+            decision = false;
+            reason = "Blocked - Blacklist".to_string();
+        } else if is_relay && is_locked {
+            if HEARTBEAT_SIZES.contains(&payload_len) {
+                reason = "Service/Heartbeat (Relay)".to_string();
+            } else {
+                decision = false;
+                reason = "Blocked - Locked Session (Relay)".to_string();
+            }
+        } else if is_friend {
+            reason = "Whitelisted IP".to_string();
+            should_cache = true;
+        } else if is_lan {
+            reason = "LAN".to_string();
+        } else if HEARTBEAT_SIZES.contains(&payload_len) {
+            reason = "Service/Heartbeat".to_string();
+        } else {
+            match active_session.as_str() {
+                "Solo" => {
+                    decision = false;
+                    reason = "Blocked - Solo Session".to_string();
+                }
+                "Whitelist" => {
+                    decision = false;
+                    reason = "Blocked - Whitelist Only".to_string();
+                }
+                _ => {
+                    if is_locked {
+                        if MATCHMAKING_SIZES.contains(&payload_len) {
+                            decision = false;
+                            reason = "Blocked - Locked Session".to_string();
+                        } else {
+                            reason = "Locked - Unknown Non-Matchmaking Allowed".to_string();
+                            should_cache = true;
+                        }
+                    } else {
+                        should_cache = true;
+                    }
+                }
+            }
+        }
+
+        // Cache allowed IP addresses if eligible
+        let mut is_new_connection = false;
+        if decision && should_cache {
+            is_new_connection = known_allowed.insert(ip_src.clone());
+        }
+
+        // Update Rate Stats
+        let stats = rates.entry(ip_src.clone()).or_insert_with(|| RateStats {
+            window_start: Some(now),
+            ..Default::default()
+        });
+
+        stats.count += 1;
+        if is_suspicious {
+            stats.suspicious_count += 1;
+        }
+
+        if let Some(win_start) = stats.window_start {
+            if now.duration_since(win_start) >= Duration::from_secs(1) {
+                let pps = stats.suspicious_count;
+                stats.window_start = Some(now);
+                stats.count = 0;
+                stats.suspicious_count = 0;
+
+                // Calibrate adaptive IPS
+                if !adaptive_calibrated {
+                    let elapsed = now.duration_since(session_start);
+                    if elapsed < Duration::from_secs(state.config.ips_adaptive_measurement_seconds as u64) {
+                        if !is_friend && !is_lan {
+                            measured_max_pps = measured_max_pps.max(pps);
+                        }
+                    } else {
+                        if measured_max_pps > 0 {
+                            current_threshold = measured_max_pps.max(5) * state.config.ips_adaptive_multiplier as usize;
+                        } else {
+                            current_threshold = state.config.ips_fallback_threshold as usize;
+                        }
+                        adaptive_calibrated = true;
+                    }
+                }
+
+                // Check for Attack & Ban
+                if state.config.ips_enabled && !is_friend && !is_lan && !is_relay && pps >= current_threshold {
+                    temp_blacklist.insert(ip_src.clone(), now + Duration::from_secs(state.config.ips_ban_duration as u64));
+                }
+
+                // Trigger Auto-Lock or Alarm
+                if state.config.ips_enabled && pps >= current_threshold {
+                    if state.config.sound_enabled {
+                        let _ = app.emit("play-sound", "ips");
+                    }
+                    if state.config.auto_lock_on_attack && !state.is_locked {
+                        drop(state);
+                        {
+                            let mut state_write = STATE.write();
+                            state_write.is_locked = true;
+                            state_write.active_session = "Lock".to_string();
+                        }
+                        let _ = app.emit("status-changed", ());
+                        crate::update_window_icon(&app);
+                    }
+                }
+            }
+        }
+
+        // Emit to log if it's a new connection, matchmaking request, or blocked/yellow highlighted friend, with cooldown
+        let should_log = !decision || is_friend || is_relay || MATCHMAKING_SIZES.contains(&payload_len) || is_new_connection;
+        if should_log {
+            let throttle = last_log_time.get(&ip_src);
+            if throttle.is_none() || now.duration_since(*throttle.unwrap()) >= Duration::from_secs(15) {
+                last_log_time.insert(ip_src.clone(), now);
+
+                let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                let action = if decision { "ALLOW".to_string() } else { "BLOCK".to_string() };
+                let log = LogEntry {
+                    timestamp,
+                    ip: ip_src.clone(),
+                    action,
+                    size: payload_len,
+                    reason: reason.clone(),
+                };
+                let _ = app.emit("connection-log", log.clone());
+                append_log_to_file(&log);
+            }
+        }
+
+        if decision {
+            if let Err(e) = w.send(&packet) {
+                log_system_message(&format!("SYSTEM ERROR: WinDivert send failed (allowed): {:?}", e));
+            }
+        }
+    }
+
+    STATE.write().is_running = false;
+    let _ = app.emit("status-changed", ());
 }
 
 #[allow(dead_code)]
@@ -820,14 +887,24 @@ pub fn stop_firewall_worker() {
     // and release the files. Since the app is running as Administrator, this will succeed.
     use std::os::windows::process::CommandExt;
     let _ = std::process::Command::new("sc.exe")
-        .args(&["stop", "WinDivert1.3"])
+        .args(&["stop", "WinDivert"])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+
+    let _ = std::process::Command::new("sc.exe")
+        .args(&["stop", "WinDivert1.3"])
+        .creation_flags(0x08000000)
         .output();
 
     let _ = std::process::Command::new("sc.exe")
         .args(&["stop", "WinDivert1.4"])
         .creation_flags(0x08000000)
         .output();
+}
+
+pub fn shutdown_firewall() {
+    *GLOBAL_EXIT_FLAG.write() = true;
+    stop_firewall_worker();
 }
 
 #[cfg(test)]
