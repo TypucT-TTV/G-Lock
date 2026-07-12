@@ -26,6 +26,7 @@ pub struct FirewallState {
     pub active_session: String, // "Open", "Solo", "Whitelist", "Blacklist", "Lock"
     pub is_locked: bool,
     pub is_running: bool,
+    pub driver_error: Option<String>,
     pub whitelist: HashSet<String>,
     pub blacklist: HashSet<String>,
     pub dynamic_blacklist: Vec<ipnet::Ipv4Net>,
@@ -124,6 +125,7 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
         active_session: "Open".to_string(),
         is_locked: false,
         is_running: false,
+        driver_error: None,
         whitelist,
         blacklist,
         dynamic_blacklist: Vec::new(),
@@ -573,7 +575,11 @@ pub fn start_firewall(app: AppHandle) {
     if running {
         return;
     }
-    STATE.write().is_running = true;
+    {
+        let mut state = STATE.write();
+        state.is_running = true;
+        state.driver_error = None;
+    }
     *STOP_FLAG.write() = false;
 
     // Load initial dynamic blacklist
@@ -587,9 +593,15 @@ pub fn start_firewall(app: AppHandle) {
         let w: WinDivert<windivert::layer::NetworkLayer> = match WinDivert::network(&filter, 0, WinDivertFlags::default()) {
             Ok(handle) => handle,
             Err(e) => {
-                eprintln!("Failed to open WinDivert handle: {:?}", e);
-                log_system_message(&format!("SYSTEM ERROR: Failed to open WinDivert handle: {:?}", e));
-                STATE.write().is_running = false;
+                let err_msg = format!("{:?}", e);
+                eprintln!("Failed to open WinDivert handle: {}", err_msg);
+                log_system_message(&format!("SYSTEM ERROR: Failed to open WinDivert handle: {}", err_msg));
+                {
+                    let mut state = STATE.write();
+                    state.is_running = false;
+                    state.driver_error = Some(err_msg);
+                }
+                let _ = app.emit("status-changed", ());
                 return;
             }
         };

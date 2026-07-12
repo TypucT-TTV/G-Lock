@@ -5,7 +5,7 @@
 
   // State definitions using Svelte 5 runes
   let activeTab = $state("dashboard"); // "dashboard", "lists", "settings", "help"
-  let status = $state({ active_session: "Open", is_locked: false, is_running: false });
+  let status = $state({ active_session: "Open", is_locked: false, is_running: false, driver_error: null as string | null });
   let lists = $state({ whitelist: [] as string[], blacklist: [] as string[] });
   let settings = $state({
     sound_enabled: true,
@@ -35,6 +35,8 @@
       status_open: "🟢 ОТКРЫТО",
       status_locked: "🔴 ЗАПЕРТО",
       status_solo: "⚡ SOLO-СЕССИЯ",
+      status_error: "⚠️ ОШИБКА ДРАЙВЕРА",
+      err_driver_fail: "Драйвер WinDivert не запущен (проверьте права/антивирус): ",
       lock_session: "Запереть сессию (Lock)",
       solo_session: "Solo-сессия",
       whitelist_session: "Сессия по вайтлисту",
@@ -99,6 +101,8 @@
       status_open: "🟢 OPEN",
       status_locked: "🔴 LOCKED",
       status_solo: "⚡ SOLO SESSION",
+      status_error: "⚠️ DRIVER ERROR",
+      err_driver_fail: "WinDivert driver not running (check privileges/antivirus): ",
       lock_session: "Lock Session",
       solo_session: "Solo Session",
       whitelist_session: "Whitelist Session",
@@ -584,7 +588,7 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.28</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.29</span></h2>
     </div>
 
     <nav class="nav-links">
@@ -651,12 +655,14 @@
 
         <section class="dashboard-grid">
           <!-- Big Status Glowing Card -->
-          <div class="status-card" class:locked={status.is_locked} onclick={handleToggleLock}>
+          <div class="status-card" class:locked={status.is_locked} class:error={!!status.driver_error} onclick={status.driver_error ? null : handleToggleLock}>
             <div class="glow-layer"></div>
             <div class="card-inner">
               <span class="status-label">STATUS</span>
               <h2 class="status-text">
-                {#if status.active_session === "Solo"}
+                {#if status.driver_error}
+                  {activeLang.status_error}
+                {:else if status.active_session === "Solo"}
                   {activeLang.status_solo}
                 {:else if status.is_locked}
                   {activeLang.status_locked}
@@ -664,7 +670,13 @@
                   {activeLang.status_open}
                 {/if}
               </h2>
-              <span class="status-tip">Кликните, чтобы переключить замок (F9)</span>
+              <span class="status-tip">
+                {#if status.driver_error}
+                  {activeLang.err_driver_fail} {status.driver_error}
+                {:else}
+                  Кликните, чтобы переключить замок (F9)
+                {/if}
+              </span>
               
               <div class="threats-banner" onclick={(e) => e.stopPropagation()}>
                 <span>
@@ -1252,12 +1264,21 @@
     background: radial-gradient(circle at center, rgba(231, 76, 60, 0.15) 0%, transparent 70%);
   }
 
-  .status-card:not(.locked) {
+  .status-card:not(.locked):not(.error) {
     border-color: rgba(46, 204, 113, 0.3);
   }
 
-  .status-card:not(.locked) .glow-layer {
+  .status-card:not(.locked):not(.error) .glow-layer {
     background: radial-gradient(circle at center, rgba(46, 204, 113, 0.15) 0%, transparent 70%);
+  }
+
+  .status-card.error {
+    border-color: rgba(231, 76, 60, 0.6);
+    cursor: not-allowed;
+  }
+
+  .status-card.error .glow-layer {
+    background: radial-gradient(circle at center, rgba(231, 76, 60, 0.25) 0%, transparent 70%);
   }
 
   .glow-layer {

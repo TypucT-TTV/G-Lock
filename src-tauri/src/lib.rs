@@ -12,6 +12,7 @@ fn get_status() -> serde_json::Value {
         "active_session": state.active_session,
         "is_locked": state.is_locked,
         "is_running": state.is_running,
+        "driver_error": state.driver_error.clone(),
     })
 }
 
@@ -42,6 +43,9 @@ fn toggle_lock_logic(app: &AppHandle) {
     let sound_enabled;
     {
         let mut state = STATE.write();
+        if state.driver_error.is_some() {
+            return;
+        }
         state.is_locked = !state.is_locked;
         is_locked = state.is_locked;
         sound_enabled = state.config.sound_enabled;
