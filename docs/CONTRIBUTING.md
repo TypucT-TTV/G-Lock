@@ -28,17 +28,22 @@
 ### 1. Форматирование и проверка Rust-кода (бэкенд)
 Весь Rust-код должен быть отформатирован в соответствии со стандартами:
 ```bash
-cargo fmt --all -- --check
+cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
 ```
 И протестирован с помощью Clippy на отсутствие предупреждений и ошибок:
 ```bash
-cargo clippy --all-targets -- -D warnings
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-### 2. Сборка фронтенда
-Убедитесь, что Svelte 5 фронтенд собирается без ошибок и предупреждений линтера:
+### 2. Проверка фронтенда
+Убедитесь, что Svelte 5 и TypeScript проходят статическую проверку:
 ```bash
-npm run build
+npm run check
+```
+
+### 3. Модульные тесты Rust
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 ---

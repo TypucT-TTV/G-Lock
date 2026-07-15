@@ -3,22 +3,74 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
 
+  type Settings = {
+    blacklist: Record<string, string>;
+    whitelist: Record<string, string>;
+    language: "ru" | "en";
+    hotkey_vk: number;
+    hotkey_name: string;
+    sound_enabled: boolean;
+    sound_lock_freq: number;
+    sound_lock_dur: number;
+    sound_lock_vol: number;
+    sound_unlock_freq: number;
+    sound_unlock_dur: number;
+    sound_unlock_vol: number;
+    zoom_factor: number;
+    verbose_logging_enabled: boolean;
+    verbose_flood_threshold: number;
+    ips_enabled: boolean;
+    ips_pps_threshold: number;
+    ips_ban_duration: number;
+    auto_lock_on_attack: boolean;
+    panic_hotkey_vk: number;
+    panic_hotkey_ctrl: boolean;
+    panic_hotkey_name: string;
+    ips_adaptive_multiplier: number;
+    ips_adaptive_measurement_seconds: number;
+    ips_fallback_threshold: number;
+    ips_global_pps_ceiling: number;
+    window_w: number | null;
+    window_h: number | null;
+    window_x: number | null;
+    window_y: number | null;
+  };
+
   // State definitions using Svelte 5 runes
   let activeTab = $state("dashboard"); // "dashboard", "lists", "settings", "help"
   let status = $state({ active_session: "Open", is_locked: false, is_running: false, driver_error: null as string | null });
   let lists = $state({ whitelist: [] as string[], blacklist: [] as string[] });
-  let settings = $state({
+  let settings = $state<Settings>({
+    blacklist: {},
+    whitelist: {},
+    language: "ru",
+    hotkey_vk: 0x78,
+    hotkey_name: "F9",
     sound_enabled: true,
     sound_lock_freq: 900,
     sound_lock_dur: 200,
+    sound_lock_vol: 80,
     sound_unlock_freq: 400,
     sound_unlock_dur: 200,
+    sound_unlock_vol: 80,
+    zoom_factor: 1,
+    verbose_logging_enabled: true,
+    verbose_flood_threshold: 50,
     ips_enabled: true,
+    ips_pps_threshold: 150,
+    ips_ban_duration: 60,
     ips_adaptive_multiplier: 5,
     ips_adaptive_measurement_seconds: 45,
     ips_fallback_threshold: 250,
+    ips_global_pps_ceiling: 2000,
     auto_lock_on_attack: false,
-    language: "ru"
+    panic_hotkey_vk: 0x78,
+    panic_hotkey_ctrl: true,
+    panic_hotkey_name: "Ctrl+F9",
+    window_w: null,
+    window_h: null,
+    window_x: null,
+    window_y: null,
   });
 
   // UI helpers
@@ -36,11 +88,13 @@
       status_locked: "🔴 ЗАПЕРТО",
       status_solo: "⚡ SOLO-СЕССИЯ",
       status_error: "⚠️ ОШИБКА ДРАЙВЕРА",
+      status_tip: "Кликните, чтобы переключить замок (F9)",
+      modes_title: "Режимы фильтрации",
       err_driver_fail: "Драйвер WinDivert не запущен (проверьте права/антивирус): ",
       lock_session: "Запереть сессию (Lock)",
       solo_session: "Solo-сессия",
       whitelist_session: "Сессия по вайтлисту",
-      stop_session: "Остановить сессию",
+      stop_session: "Открыть сессию",
       live_activity: "Сетевая активность в реальном времени",
       col_wl: "ВЛ",
       col_bl: "ЧЛ",
@@ -80,13 +134,19 @@
       sound_file_empty: "Файл не выбран (нажмите для загрузки)",
       err_sound_size: "Ошибка: Звуковой файл должен быть меньше 1 МБ!",
       settings_ips: "Система предотвращения вторжений (IPS)",
+      settings_enable_ips: "Включить лимиты трафика (IPS)",
       settings_multiplier: "Адаптивный множитель PPS:",
       settings_measurement: "Время замера базовой активности (сек):",
       settings_fallback: "Резервный порог флуда (PPS):",
+      settings_global_ceiling: "Глобальный предел трафика (PPS):",
       settings_autolock: "Авто-запирание сессии при атаке (Auto-Lock)",
       settings_lang: "Язык интерфейса:",
       settings_saved: "Настройки успешно сохранены!",
+      settings_save: "Сохранить настройки",
       copy_success: "IP-адрес скопирован в буфер обмена",
+      copy_title: "Кликните для копирования",
+      log_file_empty: "Этот файл лога пуст или не содержит корректных записей.",
+      log_select_hint: "Выберите файл лога слева для просмотра или открытия в Блокноте.",
       err_relay: "Защита: Нельзя добавить реле-сервер Rockstar в белый список!",
       donate_title: "Поддержка проекта G-Lock",
       donate_p1: "Всем привет. Меня зовут Тёма ТурисТ, я стример.",
@@ -102,11 +162,13 @@
       status_locked: "🔴 LOCKED",
       status_solo: "⚡ SOLO SESSION",
       status_error: "⚠️ DRIVER ERROR",
+      status_tip: "Click to toggle the session lock (F9)",
+      modes_title: "Filtering Modes",
       err_driver_fail: "WinDivert driver not running (check privileges/antivirus): ",
       lock_session: "Lock Session",
       solo_session: "Solo Session",
       whitelist_session: "Whitelist Session",
-      stop_session: "Stop Session",
+      stop_session: "Open Session",
       live_activity: "Real-time Network Activity Logs",
       col_wl: "WL",
       col_bl: "BL",
@@ -146,13 +208,19 @@
       sound_file_empty: "No file selected (click to upload)",
       err_sound_size: "Error: Audio file must be smaller than 1 MB!",
       settings_ips: "Intrusion Prevention System (IPS)",
+      settings_enable_ips: "Enable traffic limits (IPS)",
       settings_multiplier: "Adaptive PPS Multiplier:",
       settings_measurement: "Base Activity Measure Duration (sec):",
       settings_fallback: "Fallback Flood Threshold (PPS):",
+      settings_global_ceiling: "Global Traffic Ceiling (PPS):",
       settings_autolock: "Auto-Lock Session on Attack",
       settings_lang: "Interface Language:",
       settings_saved: "Settings saved successfully!",
+      settings_save: "Save settings",
       copy_success: "IP Address copied to clipboard",
+      copy_title: "Click to copy",
+      log_file_empty: "This log file is empty or contains no valid entries.",
+      log_select_hint: "Select a log file on the left to view it or open it in Notepad.",
       err_relay: "Security Alert: Cannot whitelist official Rockstar/Azure relay IP!",
       donate_title: "Support G-Lock Development",
       donate_p1: "Hi everyone! I'm Tyoma Tourist, a streamer.",
@@ -200,7 +268,7 @@
             id: "whitelist",
             title: "📜 Whitelist Session Mode",
             short: "Allows connections only from whitelisted IP addresses.",
-            full: "Restricts all incoming connections except for those specifically defined in your Whitelist (e.g., your friends' IP addresses). Any unlisted IP attempting to connect is immediately blocked."
+            full: "While open, Rockstar signaling remains available and direct P2P traffic is accepted only from Whitelist addresses. While locked, known peers stay connected and every new peer is blocked, including newly seen Whitelist addresses. The Blacklist always takes priority."
           },
           {
             id: "ips",
@@ -212,13 +280,13 @@
             id: "lists",
             title: "✍️ Whitelist & Blacklist Editor",
             short: "Manage safe and blocked IP addresses manually.",
-            full: "In the 'Protection Lists' tab, you can add, edit, or delete IP addresses and subnets in CIDR format (e.g., 192.168.1.0/24). Blacklisted IPs are always dropped, while whitelisted IPs bypass security constraints."
+            full: "In the 'Protection Lists' tab, you can add, edit, or delete IPv4 addresses and CIDR subnets (e.g., 192.168.1.0/24). Adding an address to one list removes it from the other. Blacklisted IPs are always dropped."
           },
           {
             id: "logs",
             title: "📊 Real-time Network Log",
             short: "Interactive view of all traffic and active player connections.",
-            full: "Displays all incoming network packets. Click green/red buttons to quickly add IPs to Whitelist/Blacklist, or right-click to copy IPs. Color codes: Yellow (Friends), Green (P2P), Blue (Rockstar Relay), Red (Blocked)."
+            full: "Displays the captured P2P traffic. Click green/red buttons to add IPs to Whitelist/Blacklist, or click the IP address to copy it. Color codes: Yellow (Friends), Green (P2P), Blue (Rockstar Relay), Red (Blocked)."
           },
           {
             id: "hotkeys",
@@ -244,7 +312,7 @@
             id: "whitelist",
             title: "📜 Режим «Сессия по вайтлисту»",
             short: "Разрешает подключения только с IP-адресов из белого списка.",
-            full: "Ограничивает все входящие P2P-подключения, кроме адресов друзей, внесенных в ваш Белый список. Любой другой игрок, пытающийся подключиться к вашей сессии, будет автоматически заблокирован."
+            full: "В открытом состоянии служебный handshake Rockstar проходит, а прямой P2P-трафик разрешён только адресам из Вайтлиста. В запертом состоянии известные участники остаются, а все новые блокируются, включая новые адреса Вайтлиста. Черный список всегда имеет абсолютный приоритет."
           },
           {
             id: "ips",
@@ -256,13 +324,13 @@
             id: "lists",
             title: "✍️ Управление списками защиты",
             short: "Ручное добавление и редактирование правил фильтрации.",
-            full: "На вкладке 'Списки защиты' вы можете просматривать, добавлять, изменять и удалять IP-адреса и подсети в формате CIDR (например, 192.168.1.0/24). Черный список блокируется всегда, белый список имеет наивысший приоритет."
+            full: "На вкладке 'Списки защиты' вы можете просматривать, добавлять, изменять и удалять IPv4-адреса и подсети в формате CIDR (например, 192.168.1.0/24). Добавление адреса в один список удаляет его из другого. Черный список блокирует адрес всегда."
           },
           {
             id: "logs",
             title: "📊 Интерактивный лог активности",
             short: "Отображение сетевых пакетов и быстрые действия в реальном времени.",
-            full: "Вы можете видеть IP-адреса игроков на панели лога. Клик по кнопке 🟢 добавляет IP в белый список, 🔴 — в черный. Правый клик позволяет скопировать адрес. Цвета: Желтый (Друзья), Зеленый (P2P), Синий (Релей R*), Красный (Блокирован)."
+            full: "Вы можете видеть IP-адреса игроков на панели лога. Клик по кнопке 🟢 добавляет IP в белый список, 🔴 — в черный, а клик по самому IP копирует адрес. Цвета: Желтый (Друзья), Зеленый (P2P), Синий (Релей R*), Красный (Блокирован)."
           },
           {
             id: "hotkeys",
@@ -274,15 +342,32 @@
   );
 
   async function fetchStatus() {
-    status = await invoke("get_status");
+    try {
+      status = await invoke("get_status");
+    } catch (error) {
+      console.error("Failed to load firewall status", error);
+    }
   }
 
   async function fetchLists() {
-    lists = await invoke("get_lists");
+    try {
+      lists = await invoke("get_lists");
+    } catch (error) {
+      console.error("Failed to load protection lists", error);
+    }
   }
 
   async function fetchSettings() {
-    settings = await invoke("get_settings");
+    try {
+      const loaded = await invoke<Settings>("get_settings");
+      settings = loaded;
+      soundVolume = loaded.sound_lock_vol;
+      if (!localStorage.getItem("g_lock_zoom")) {
+        zoomFactor = loaded.zoom_factor;
+      }
+    } catch (error) {
+      console.error("Failed to load settings", error);
+    }
   }
 
   let zoomFactor = $state(1.0);
@@ -380,6 +465,7 @@
       
       osc.start();
       osc.stop(ctx.currentTime + duration / 1000);
+      osc.onended = () => ctx.close();
     } catch (e) {
       console.error("AudioContext error: ", e);
     }
@@ -389,7 +475,7 @@
     try {
       const audio = new Audio(base64Data);
       audio.volume = vol / 100;
-      audio.play();
+      audio.play().catch((error) => console.error("Audio playback error: ", error));
     } catch (e) {
       console.error("Audio playback error: ", e);
     }
@@ -402,13 +488,13 @@
       if (lockSoundType === "custom" && lockSoundCustom) {
         playCustomSound(lockSoundCustom, soundVolume);
       } else {
-        playSynthBeep(900, 200, soundVolume);
+        playSynthBeep(settings.sound_lock_freq, settings.sound_lock_dur, soundVolume);
       }
     } else if (type === "unlock") {
       if (unlockSoundType === "custom" && unlockSoundCustom) {
         playCustomSound(unlockSoundCustom, soundVolume);
       } else {
-        playSynthBeep(400, 200, soundVolume);
+        playSynthBeep(settings.sound_unlock_freq, settings.sound_unlock_dur, soundVolume);
       }
     }
   }
@@ -570,6 +656,9 @@
 
   async function handleSaveSettings() {
     try {
+      settings.sound_lock_vol = soundVolume;
+      settings.sound_unlock_vol = soundVolume;
+      settings.zoom_factor = zoomFactor;
       await invoke("save_settings", { config: settings });
       saveStatusMsg = activeLang.settings_saved;
       setTimeout(() => { saveStatusMsg = ""; }, 3000);
@@ -588,7 +677,7 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.38</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.41</span></h2>
     </div>
 
     <nav class="nav-links">
@@ -624,7 +713,7 @@
   <main class="content-viewport">
     <!-- Sliding Side Drawer (No Popups!) -->
     {#if showDrawer}
-      <div class="drawer-overlay" onclick={() => showDrawer = false}></div>
+      <button type="button" class="drawer-overlay" aria-label={activeLang.btn_cancel} onclick={() => showDrawer = false}></button>
       <div class="drawer">
         <h3>{activeLang.drawer_title} ({drawerListType === "whitelist" ? "WL" : "BL"})</h3>
         <div class="form-group">
@@ -633,7 +722,6 @@
             placeholder={activeLang.drawer_placeholder}
             bind:value={drawerIpInput}
             onkeydown={(e) => e.key === "Enter" && submitDrawer()}
-            autofocus
           />
           {#if drawerError}
             <span class="error-msg">{drawerError}</span>
@@ -655,7 +743,20 @@
 
         <section class="dashboard-grid">
           <!-- Big Status Glowing Card -->
-          <div class="status-card" class:locked={status.is_locked} class:error={!!status.driver_error} onclick={status.driver_error ? null : handleToggleLock}>
+          <div
+            class="status-card"
+            class:locked={status.is_locked}
+            class:error={!!status.driver_error}
+            role="button"
+            tabindex={status.driver_error ? undefined : 0}
+            onclick={status.driver_error ? null : handleToggleLock}
+            onkeydown={(event) => {
+              if (!status.driver_error && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                handleToggleLock();
+              }
+            }}
+          >
             <div class="glow-layer"></div>
             <div class="card-inner">
               <span class="status-label">STATUS</span>
@@ -674,14 +775,14 @@
                 {#if status.driver_error}
                   {activeLang.err_driver_fail} {status.driver_error}
                 {:else}
-                  Кликните, чтобы переключить замок (F9)
+                  {activeLang.status_tip}
                 {/if}
               </span>
               
-              <div class="threats-banner" onclick={(e) => e.stopPropagation()}>
+              <div class="threats-banner">
                 <span>
                   {activeLang.blocked_threats_msg.replace("{n}", blockedThreatsCount.toString())}
-                  <button type="button" class="support-inline-link" onclick={() => activeTab = "donate"}>
+                  <button type="button" class="support-inline-link" onclick={(event) => { event.stopPropagation(); activeTab = "donate"; }}>
                     {activeLang.support_link}
                   </button>
                 </span>
@@ -691,7 +792,7 @@
 
           <!-- Session Controls Card -->
           <div class="controls-card">
-            <h3>Режимы фильтрации</h3>
+            <h3>{activeLang.modes_title}</h3>
             <div class="controls-buttons">
               <button
                 class="ctrl-btn"
@@ -749,7 +850,7 @@
                     </td>
                     <td>{log.timestamp.split(" ")[1] || log.timestamp}</td>
                     <td class="act-col">{log.action}</td>
-                    <td class="ip-col" onclick={() => copyIpToClipboard(log.ip)} title="Кликните для копирования">
+                    <td class="ip-col" onclick={() => copyIpToClipboard(log.ip)} title={activeLang.copy_title}>
                       {log.ip} {isRelay ? "[RELAY R*]" : ""}
                     </td>
                     <td>{log.reason} (Size: {log.size})</td>
@@ -857,7 +958,7 @@
                   </div>
                 {:else}
                   <div class="file-upload-row">
-                    <button type="button" class="btn-action" onclick={() => playSynthBeep(900, 200, soundVolume)}>{activeLang.btn_test_sound}</button>
+                    <button type="button" class="btn-action" onclick={() => playSynthBeep(settings.sound_lock_freq, settings.sound_lock_dur, soundVolume)}>{activeLang.btn_test_sound}</button>
                   </div>
                 {/if}
               </div>
@@ -883,7 +984,7 @@
                   </div>
                 {:else}
                   <div class="file-upload-row">
-                    <button type="button" class="btn-action" onclick={() => playSynthBeep(400, 200, soundVolume)}>{activeLang.btn_test_sound}</button>
+                    <button type="button" class="btn-action" onclick={() => playSynthBeep(settings.sound_unlock_freq, settings.sound_unlock_dur, soundVolume)}>{activeLang.btn_test_sound}</button>
                   </div>
                 {/if}
               </div>
@@ -898,7 +999,7 @@
               <label class="switch-container">
                 <input type="checkbox" bind:checked={settings.ips_enabled} />
                 <span class="slider"></span>
-                <span class="label-text">Включить лимиты трафика (IPS)</span>
+                <span class="label-text">{activeLang.settings_enable_ips}</span>
               </label>
             </div>
 
@@ -914,7 +1015,7 @@
               <div class="setting-item">
                 <div class="slider-header">
                   <span>{activeLang.settings_measurement}</span>
-                  <span class="slider-value">{settings.ips_adaptive_measurement_seconds}с</span>
+                  <span class="slider-value">{settings.ips_adaptive_measurement_seconds} s</span>
                 </div>
                 <input type="range" min="15" max="120" bind:value={settings.ips_adaptive_measurement_seconds} />
               </div>
@@ -925,6 +1026,14 @@
                   <span class="slider-value">{settings.ips_fallback_threshold} PPS</span>
                 </div>
                 <input type="range" min="50" max="500" step="10" bind:value={settings.ips_fallback_threshold} />
+              </div>
+
+              <div class="setting-item">
+                <div class="slider-header">
+                  <span>{activeLang.settings_global_ceiling}</span>
+                  <span class="slider-value">{settings.ips_global_pps_ceiling} PPS</span>
+                </div>
+                <input type="range" min="500" max="10000" step="100" bind:value={settings.ips_global_pps_ceiling} />
               </div>
 
               <div class="setting-item">
@@ -939,7 +1048,7 @@
 
           <!-- Save Button -->
           <div class="settings-actions">
-            <button class="save-settings-btn" onclick={handleSaveSettings}>💾 Сохранить настройки</button>
+            <button class="save-settings-btn" onclick={handleSaveSettings}>💾 {activeLang.settings_save}</button>
             {#if saveStatusMsg}
               <span class="save-status">{saveStatusMsg}</span>
             {/if}
@@ -988,7 +1097,7 @@
               </div>
               <div class="log-content-table-wrapper">
                 {#if selectedLogEntries.length === 0}
-                  <div class="empty-state">Этот файл лога пуст или не содержит корректных записей.</div>
+                  <div class="empty-state">{activeLang.log_file_empty}</div>
                 {:else}
                   <table class="log-table">
                     <thead>
@@ -1019,7 +1128,7 @@
             {:else}
               <div class="select-prompt">
                 <span class="prompt-icon">📁</span>
-                <p>Выберите файл лога слева, чтобы просмотреть его содержимое, или откройте в Блокноте.</p>
+                <p>{activeLang.log_select_hint}</p>
               </div>
             {/if}
           </div>
@@ -1082,7 +1191,7 @@
               <p class="desc">{activeLang.donate_p3}</p>
               <p class="desc">{activeLang.donate_p4}</p>
             </div>
-            <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" class="donate-btn-large">
+            <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" rel="noopener noreferrer" class="donate-btn-large">
               {activeLang.btn_donate_da}
             </a>
           </div>
@@ -1128,12 +1237,15 @@
   /* Left Sidebar Styling */
   .sidebar {
     width: 250px;
+    min-width: 250px;
+    flex: 0 0 250px;
     background-color: var(--bg-sidebar);
     border-right: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     flex-direction: column;
     padding: 24px;
     box-sizing: border-box;
+    overflow-x: hidden;
     overflow-y: auto;
   }
 
@@ -1206,6 +1318,7 @@
   /* Content Panel */
   .content-viewport {
     flex-grow: 1;
+    min-width: 0;
     position: relative;
     overflow-y: auto;
     display: flex;
@@ -1604,6 +1717,9 @@
     height: 100%;
     background-color: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(4px);
+    border: 0;
+    padding: 0;
+    cursor: default;
     z-index: 99;
     animation: fadeIn 0.25s ease;
   }
@@ -2071,6 +2187,7 @@
     font-weight: 700;
     background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 

@@ -1,69 +1,81 @@
 # G-Lock
 
-Firewall-based session protection for **GTA Online**. G-Lock keeps modders and
-griefers out of your lobby by filtering connections at the network level — with a
-clean custom UI and a one-key session lock (F9).
-
-## What it is (and what it isn't)
-
-G-Lock is **not** a mod menu and **not** a cheat. It never touches the game process,
-never reads or writes game memory, and never modifies any game files. It only filters
-network traffic through the Windows firewall, so it runs safely alongside BattlEye.
-
-- ✅ Blocks unwanted players from connecting to your session
-- ✅ Lets you assemble your crew, then lock the lobby
-- ❌ No code injection
-- ❌ No cheats or gameplay advantages
+G-Lock is a Windows firewall utility for protecting GTA Online sessions. It filters
+IPv4 UDP traffic through WinDivert without injecting code, reading game memory, or
+modifying game files.
 
 ## Features
 
-- **One-key session lock (F9):** instantly lock or open your lobby, even while
-  in-game. Audio feedback tells you the state (high beep = locked, low beep = open).
-- **Custom UI** on top of the proven Guardian filtering engine.
-- **Solo / Locked sessions:** play completely alone, or keep your crew in and
-  everyone else out.
+- Global `F9` lock/unlock hotkey and `Ctrl+F9` panic unlock.
+- Open, Locked, Solo, and Whitelist session modes.
+- IPv4/CIDR whitelist and blacklist with immediate rule updates.
+- Adaptive per-IP flood protection and a bounded global PPS ceiling.
+- Real-time connection log with quick whitelist/blacklist actions.
+- Russian and English interface, custom alert sounds, and UI zoom.
 
 ## Requirements
 
-- Windows 10 / 11 (64-bit)
-- Administrator rights (required for the network driver)
-- Python 3.10–3.11 (the app runs from source)
+- Windows 10 or 11, x64.
+- Administrator privileges for the WinDivert network driver.
+- For development: Node.js LTS, Rust stable with the MSVC toolchain, and npm.
 
-## Installation & Run
+## Run from source
 
-1. Download or clone this repository.
-2. Install [Poetry](https://python-poetry.org/): `pip install poetry`
-3. Install dependencies: `poetry install`
-4. Run **as administrator** via `Run G-Lock.bat` (or the provided shortcut).
+Open an Administrator terminal in the repository:
 
-## Usage
+```powershell
+npm ci
+npm run tauri dev
+```
 
-**Play alone:** start the app, choose **Solo Session**. You're now alone in your lobby.
+The production installers are built with:
 
-**Play with your crew (collect-then-lock):**
-1. Start a fresh session as host.
-2. Press **F9** to open the lobby (low beep).
-3. Invite your friends and wait for everyone to load in.
-4. Press **F9** again to lock (high beep). No new players can join; your crew stays.
+```powershell
+npm run tauri build
+```
 
-**Real-Time Interactive Connection Logs:**
-* G-Lock features a real-time network panel on the right side of the window.
-* It shows allowed connections (green/blue) and blocked attempts (red).
-* You can right-click any IP in the log to **Copy IP**, **Add to Whitelist**, or **Add to Blacklist** directly with on-the-fly protection reloads.
+Build outputs are written under `src-tauri/target/release/bundle/`.
 
-> Close the app when you're done, otherwise you won't be able to join normal
-> public lobbies while it's running.
+## Basic usage
 
-## Credits
+1. Start G-Lock before joining GTA Online.
+2. Leave the session Open while your group joins. G-Lock learns the active peer IPs.
+3. Press `F9` or select Lock. Known peers remain connected; unknown non-service
+   traffic is blocked.
+4. Press `F9` again, `Ctrl+F9`, or select Open before joining another public lobby.
 
-Built on [Guardian](https://github.com/TheMythologist/guardian) by TheMythologist,
-originally created by Speyedr. Licensed under LGPL-3.0.
+Heartbeat packets required by Rockstar services are passed unless the peer address
+is explicitly blacklisted. Rockstar/Azure relay ranges are loaded from the bundled
+database and refreshed from RIPE in the background. Relay traffic is excluded from
+IPS rate bans.
 
-## License
+Whitelist mode has its own Open/Locked state. While Open, Rockstar signaling is
+allowed and direct P2P traffic is accepted only from whitelist addresses. While
+Locked, already-known peers remain connected and no new peer is admitted, including
+a newly seen whitelisted address. The blacklist always takes priority in every mode.
 
-GNU Lesser General Public License v3.0 (LGPL-3.0). See [LICENSE](LICENSE).
+## Security notes
 
-## Disclaimer
+G-Lock runs elevated because WinDivert requires administrator rights. It does not add
+Windows Defender exclusions. If security software blocks the signed WinDivert files,
+review the alert and configure the narrowest possible exception manually.
 
-Provided as-is, for protective use only. Not affiliated with Rockstar Games or
-Take-Two Interactive. Use at your own risk.
+Connection logs and `data.json` are stored next to the executable. Do not publish
+them without reviewing contained IP addresses.
+
+## Development checks
+
+```powershell
+npm run check
+cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+## Credits and license
+
+Based on Guardian by TheMythologist, originally created by Speyedr. G-Lock is
+licensed under GNU LGPL-3.0-only; see [LICENSE](LICENSE).
+
+G-Lock is not affiliated with Rockstar Games or Take-Two Interactive. Use it at your
+own risk and follow the applicable game and platform rules.

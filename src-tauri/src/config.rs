@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Config {
     pub blacklist: HashMap<String, String>,
     pub whitelist: HashMap<String, String>,
@@ -31,6 +32,7 @@ pub struct Config {
     pub ips_adaptive_multiplier: u32,
     pub ips_adaptive_measurement_seconds: u32,
     pub ips_fallback_threshold: u32,
+    pub ips_global_pps_ceiling: u32,
     #[serde(rename = "window_w")]
     pub window_width: Option<u32>,
     #[serde(rename = "window_h")]
@@ -67,6 +69,7 @@ impl Default for Config {
             ips_adaptive_multiplier: 5,
             ips_adaptive_measurement_seconds: 45,
             ips_fallback_threshold: 250,
+            ips_global_pps_ceiling: 2000,
             window_width: None,
             window_height: None,
             window_x: None,
@@ -75,13 +78,46 @@ impl Default for Config {
     }
 }
 
-pub fn get_config_path() -> std::path::PathBuf {
+impl Config {
+    pub fn validate(&self) -> Result<(), String> {
+        if !matches!(self.language.as_str(), "ru" | "en") {
+            return Err("Unsupported language".to_string());
+        }
+        if self.hotkey_vk == 0 || self.panic_hotkey_vk == 0 {
+            return Err("Hotkey virtual-key code cannot be zero".to_string());
+        }
+        if self.sound_lock_vol > 100 || self.sound_unlock_vol > 100 {
+            return Err("Sound volume must be between 0 and 100".to_string());
+        }
+        if self.sound_lock_dur == 0 || self.sound_unlock_dur == 0 {
+            return Err("Sound duration must be greater than zero".to_string());
+        }
+        if !(0.5..=2.0).contains(&self.zoom_factor) {
+            return Err("Zoom factor must be between 0.5 and 2.0".to_string());
+        }
+        if !(2..=15).contains(&self.ips_adaptive_multiplier) {
+            return Err("IPS multiplier must be between 2 and 15".to_string());
+        }
+        if !(15..=120).contains(&self.ips_adaptive_measurement_seconds) {
+            return Err("IPS measurement duration must be between 15 and 120 seconds".to_string());
+        }
+        if !(50..=10_000).contains(&self.ips_fallback_threshold) {
+            return Err("IPS fallback threshold must be between 50 and 10000 PPS".to_string());
+        }
+        if !(100..=100_000).contains(&self.ips_global_pps_ceiling) {
+            return Err("Global IPS ceiling must be between 100 and 100000 PPS".to_string());
+        }
+        Ok(())
+    }
+}
+
+pub fn get_config_path() -> PathBuf {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
             return parent.join("data.json");
         }
     }
-    std::path::PathBuf::from("data.json")
+    PathBuf::from("data.json")
 }
 
 pub fn load_config() -> Config {
@@ -102,10 +138,16 @@ pub fn load_config() -> Config {
                 // Attempt partial migration or fallback
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                     let mut cfg = Config::default();
-                    if let Some(bl) = val.get("blacklist").and_then(|v| serde_json::from_value(v.clone()).ok()) {
+                    if let Some(bl) = val
+                        .get("blacklist")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    {
                         cfg.blacklist = bl;
                     }
-                    if let Some(wl) = val.get("whitelist").and_then(|v| serde_json::from_value(v.clone()).ok()) {
+                    if let Some(wl) = val
+                        .get("whitelist")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    {
                         cfg.whitelist = wl;
                     }
                     if let Some(lang) = val.get("language").and_then(|v| v.as_str()) {
@@ -120,11 +162,17 @@ pub fn load_config() -> Config {
                     if let Some(val) = val.get("ips_adaptive_multiplier").and_then(|v| v.as_u64()) {
                         cfg.ips_adaptive_multiplier = val as u32;
                     }
-                    if let Some(val) = val.get("ips_adaptive_measurement_seconds").and_then(|v| v.as_u64()) {
+                    if let Some(val) = val
+                        .get("ips_adaptive_measurement_seconds")
+                        .and_then(|v| v.as_u64())
+                    {
                         cfg.ips_adaptive_measurement_seconds = val as u32;
                     }
                     if let Some(val) = val.get("ips_fallback_threshold").and_then(|v| v.as_u64()) {
                         cfg.ips_fallback_threshold = val as u32;
+                    }
+                    if let Some(val) = val.get("ips_global_pps_ceiling").and_then(|v| v.as_u64()) {
+                        cfg.ips_global_pps_ceiling = val as u32;
                     }
                     if let Some(val) = val.get("window_width").and_then(|v| v.as_u64()) {
                         cfg.window_width = Some(val as u32);
@@ -151,7 +199,69 @@ pub fn load_config() -> Config {
 pub fn save_config(config: &Config) -> std::io::Result<()> {
     let path = get_config_path();
     let content = serde_json::to_string_pretty(config)?;
-    let mut file = File::create(path)?;
+    let temp_path = path.with_extension("json.tmp");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp_path)?;
     file.write_all(content.as_bytes())?;
-    Ok(())
+    file.sync_all()?;
+    drop(file);
+    replace_file(&temp_path, &path)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(once(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_fields_use_defaults() {
+        let config: Config = serde_json::from_str(r#"{"language":"en"}"#).unwrap();
+        assert_eq!(config.language, "en");
+        assert_eq!(config.hotkey_vk, 0x78);
+        assert_eq!(config.ips_global_pps_ceiling, 2000);
+    }
+
+    #[test]
+    fn validation_rejects_invalid_values() {
+        let config = Config {
+            sound_lock_vol: 101,
+            ..Config::default()
+        };
+        assert!(config.validate().is_err());
+    }
 }

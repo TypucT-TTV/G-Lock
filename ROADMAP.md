@@ -37,18 +37,18 @@ This document outlines the planned improvements and future features for the G-Lo
 
 ---
 
-## Phase 3: Connection Logging & UI Refinements
+## Phase 3: Connection Logging & UI Refinements (Partially completed)
 
 **Goal:** Simplify manual blacklisting / whitelisting from the G-Lock interface.
 
-- **Log Interaction:**
-  - Allow users to right-click IP addresses in the diagnostic connection log window to instantly "Add to Blacklist" or "Add to Whitelist".
+- **Log Interaction — completed:**
+  - Provide quick Whitelist/Blacklist buttons beside each diagnostic log entry and click-to-copy for its IP address.
 - **Reverse Geo-lookup:**
   - Integrate a lightweight offline database (e.g., MaxMind GeoLite2) to show approximate player countries in the connection logs to identify suspicious connection origins.
 
 ---
 
-## Phase 4: Advanced Crash & Flood Protection (IPS Enhancements)
+## Phase 4: Advanced Crash & Flood Protection (IPS Enhancements, partially completed)
 
 **Goal:** Secure G-Lock from advanced distributed P2P attacks and Rockstar relay tunneling.
 
@@ -59,15 +59,16 @@ This document outlines the planned improvements and future features for the G-Lo
   - Rate-limit all other traffic from relay subnets with an isolated, higher threshold (`ips_pps_threshold_rstar`, default 300 PPS).
   - Toggled via `surgical_rstar_ips` in `data.json` to allow diagnostic checks.
 
-### 2. Adaptive PPS Threshold
+### 2. Adaptive PPS Threshold — completed
 - **Objective:** Eliminate the need to manually tune the fixed `ips_pps_threshold` for different networks.
 - **Mechanism:**
   - Measure the baseline incoming PPS over a quiet 30-60 second window after the application starts.
   - Set the active PPS threshold dynamically as a multiplier of the baseline (e.g., `ips_threshold_multiplier = 5`).
   - Fall back to the configured fixed threshold if a reliable baseline cannot be established.
 
-### 3. Global PPS Ceiling (Anti-Spoofing & Distributed Flood Protection)
+### 3. Global PPS Ceiling (Anti-Spoofing & Distributed Flood Protection) — completed
 - **Objective:** Defend against distributed floods or IP-spoofing where packets arrive from random/changing IPs.
 - **Mechanism:**
-  - Track the cumulative incoming PPS from all non-whitelisted sources.
-  - If the aggregate stream exceeds a global limit (`global_pps_ceiling`), write an anomaly entry to the incident log and trigger an automatic lock transition.
+  - Track the cumulative incoming PPS from non-whitelisted, non-LAN, non-relay sources.
+  - If the aggregate stream exceeds `ips_global_pps_ceiling`, write an anomaly entry and optionally trigger Auto-Lock.
+  - Keep all per-IP tracking maps bounded and expire inactive entries by TTL.

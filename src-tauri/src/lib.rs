@@ -3,6 +3,7 @@ mod firewall;
 
 use config::{save_config, Config};
 use firewall::{start_firewall, update_subnets_cache, STATE};
+use std::net::Ipv4Addr;
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
@@ -22,9 +23,19 @@ fn toggle_lock(app: AppHandle) -> serde_json::Value {
     get_status()
 }
 
+fn toggled_session_mode(current_mode: &str, is_locked: bool) -> String {
+    if current_mode == "Whitelist" {
+        "Whitelist".to_string()
+    } else if is_locked {
+        "Lock".to_string()
+    } else {
+        "Open".to_string()
+    }
+}
+
 pub fn update_window_icon(app: &AppHandle) {
-    use tauri::Manager;
     use tauri::image::Image;
+    use tauri::Manager;
     if let Some(window) = app.get_webview_window("main") {
         let is_locked = STATE.read().is_locked;
         let icon_bytes = if is_locked {
@@ -49,14 +60,12 @@ fn toggle_lock_logic(app: &AppHandle) {
         state.is_locked = !state.is_locked;
         is_locked = state.is_locked;
         sound_enabled = state.config.sound_enabled;
-        
-        if is_locked {
-            state.active_session = "Lock".to_string();
-        } else {
-            state.active_session = "Open".to_string();
-        }
+
+        // Whitelist is a persistent mode with its own open/locked state.
+        // Other modes retain the original Open <-> Lock toggle behavior.
+        state.active_session = toggled_session_mode(&state.active_session, is_locked);
     }
-    
+
     if sound_enabled {
         let sound_name = if is_locked { "lock" } else { "unlock" };
         let _ = app.emit("play-sound", sound_name);
@@ -66,18 +75,22 @@ fn toggle_lock_logic(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn start_session(session_type: String, app: AppHandle) -> serde_json::Value {
+fn start_session(session_type: String, app: AppHandle) -> Result<serde_json::Value, String> {
+    if !matches!(
+        session_type.as_str(),
+        "Open" | "Lock" | "Solo" | "Whitelist"
+    ) {
+        return Err("Unsupported session type".to_string());
+    }
     {
         let mut state = STATE.write();
+        state.is_locked = session_type == "Lock";
         state.active_session = session_type;
-        if state.active_session == "Lock" {
-            state.is_locked = true;
-        }
     }
     start_firewall(app.clone());
     let _ = app.emit("status-changed", ());
     update_window_icon(&app);
-    get_status()
+    Ok(get_status())
 }
 
 #[tauri::command]
@@ -95,35 +108,86 @@ fn stop_session(app: AppHandle) -> serde_json::Value {
 #[tauri::command]
 fn get_lists() -> serde_json::Value {
     let state = STATE.read();
+    let mut whitelist = state.whitelist.iter().cloned().collect::<Vec<String>>();
+    let mut blacklist = state.blacklist.iter().cloned().collect::<Vec<String>>();
+    whitelist.sort();
+    blacklist.sort();
     serde_json::json!({
-        "whitelist": state.whitelist.iter().cloned().collect::<Vec<String>>(),
-        "blacklist": state.blacklist.iter().cloned().collect::<Vec<String>>(),
+        "whitelist": whitelist,
+        "blacklist": blacklist,
     })
+}
+
+#[derive(Clone, Copy)]
+enum ListKind {
+    Whitelist,
+    Blacklist,
+}
+
+fn parse_list_kind(value: &str) -> Result<ListKind, String> {
+    match value {
+        "whitelist" => Ok(ListKind::Whitelist),
+        "blacklist" => Ok(ListKind::Blacklist),
+        _ => Err("Unsupported list type".to_string()),
+    }
+}
+
+fn normalize_ip_rule(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if let Ok(ip) = value.parse::<Ipv4Addr>() {
+        return Ok(ip.to_string());
+    }
+    if let Ok(network) = value.parse::<ipnet::Ipv4Net>() {
+        return Ok(network.trunc().to_string());
+    }
+    Err("Enter a valid IPv4 address or IPv4 CIDR network".to_string())
+}
+
+fn overlaps_relay_network(state: &firewall::FirewallState, rule: &str) -> bool {
+    if let Ok(ip) = rule.parse::<Ipv4Addr>() {
+        return state.is_ip_relay(&ip.to_string());
+    }
+    let Ok(network) = rule.parse::<ipnet::Ipv4Net>() else {
+        return false;
+    };
+    state
+        .dynamic_blacklist
+        .iter()
+        .any(|relay| network.contains(&relay.network()) || relay.contains(&network.network()))
 }
 
 #[tauri::command]
 fn add_to_list(list_type: String, ip: String, app: AppHandle) -> Result<serde_json::Value, String> {
-    // Basic IP validation
-    if ip.trim().is_empty() {
-        return Err("IP address cannot be empty".to_string());
-    }
+    let kind = parse_list_kind(&list_type)?;
+    let ip = normalize_ip_rule(&ip)?;
 
     {
         let mut state = STATE.write();
-        if list_type == "whitelist" {
-            // Check if relay (dynamic_blacklist)
-            let is_relay = state.is_ip_relay(&ip);
-            if is_relay {
-                return Err("RELAY_PROTECTION".to_string());
-            }
-
-            state.whitelist.insert(ip.clone());
-            state.config.whitelist.insert(ip, "".to_string());
-        } else {
-            state.blacklist.insert(ip.clone());
-            state.config.blacklist.insert(ip, "".to_string());
+        if matches!(kind, ListKind::Whitelist) && overlaps_relay_network(&state, &ip) {
+            return Err("RELAY_PROTECTION".to_string());
         }
-        let _ = save_config(&state.config);
+
+        let mut next_config = state.config.clone();
+        let mut next_whitelist = state.whitelist.clone();
+        let mut next_blacklist = state.blacklist.clone();
+        match kind {
+            ListKind::Whitelist => {
+                next_blacklist.remove(&ip);
+                next_config.blacklist.remove(&ip);
+                next_whitelist.insert(ip.clone());
+                next_config.whitelist.insert(ip, "".to_string());
+            }
+            ListKind::Blacklist => {
+                next_whitelist.remove(&ip);
+                next_config.whitelist.remove(&ip);
+                next_blacklist.insert(ip.clone());
+                next_config.blacklist.insert(ip, "".to_string());
+            }
+        }
+        save_config(&next_config).map_err(|e| e.to_string())?;
+        state.config = next_config;
+        state.whitelist = next_whitelist;
+        state.blacklist = next_blacklist;
     }
 
     update_subnets_cache();
@@ -132,41 +196,60 @@ fn add_to_list(list_type: String, ip: String, app: AppHandle) -> Result<serde_js
 }
 
 #[tauri::command]
-fn delete_from_list(list_type: String, ip: String, app: AppHandle) -> serde_json::Value {
+fn delete_from_list(
+    list_type: String,
+    ip: String,
+    app: AppHandle,
+) -> Result<serde_json::Value, String> {
+    let kind = parse_list_kind(&list_type)?;
+    let ip = normalize_ip_rule(&ip)?;
     {
         let mut state = STATE.write();
-        if list_type == "whitelist" {
-            state.whitelist.remove(&ip);
-            state.config.whitelist.remove(&ip);
-        } else {
-            state.blacklist.remove(&ip);
-            state.config.blacklist.remove(&ip);
+        let mut next_config = state.config.clone();
+        let mut next_whitelist = state.whitelist.clone();
+        let mut next_blacklist = state.blacklist.clone();
+        match kind {
+            ListKind::Whitelist => {
+                next_whitelist.remove(&ip);
+                next_config.whitelist.remove(&ip);
+            }
+            ListKind::Blacklist => {
+                next_blacklist.remove(&ip);
+                next_config.blacklist.remove(&ip);
+            }
         }
-        let _ = save_config(&state.config);
+        save_config(&next_config).map_err(|e| e.to_string())?;
+        state.config = next_config;
+        state.whitelist = next_whitelist;
+        state.blacklist = next_blacklist;
     }
 
     update_subnets_cache();
     let _ = app.emit("lists-changed", ());
-    get_lists()
+    Ok(get_lists())
 }
 
 #[tauri::command]
-fn clear_list(list_type: String, app: AppHandle) -> serde_json::Value {
+fn clear_list(list_type: String, app: AppHandle) -> Result<serde_json::Value, String> {
+    let kind = parse_list_kind(&list_type)?;
     {
         let mut state = STATE.write();
-        if list_type == "whitelist" {
-            state.whitelist.clear();
-            state.config.whitelist.clear();
-        } else {
-            state.blacklist.clear();
-            state.config.blacklist.clear();
+        let mut next_config = state.config.clone();
+        match kind {
+            ListKind::Whitelist => next_config.whitelist.clear(),
+            ListKind::Blacklist => next_config.blacklist.clear(),
         }
-        let _ = save_config(&state.config);
+        save_config(&next_config).map_err(|e| e.to_string())?;
+        state.config = next_config;
+        match kind {
+            ListKind::Whitelist => state.whitelist.clear(),
+            ListKind::Blacklist => state.blacklist.clear(),
+        }
     }
 
     update_subnets_cache();
     let _ = app.emit("lists-changed", ());
-    get_lists()
+    Ok(get_lists())
 }
 
 #[tauri::command]
@@ -176,16 +259,17 @@ fn get_settings() -> Config {
 
 #[tauri::command]
 fn save_settings(mut config: Config) -> Result<(), String> {
+    config.validate()?;
     {
         let mut state = STATE.write();
+        config.whitelist = state.config.whitelist.clone();
+        config.blacklist = state.config.blacklist.clone();
         config.window_width = state.config.window_width;
         config.window_height = state.config.window_height;
         config.window_x = state.config.window_x;
         config.window_y = state.config.window_y;
-        config.zoom_factor = state.config.zoom_factor;
-        
+        save_config(&config).map_err(|e| e.to_string())?;
         state.config = config.clone();
-        let _ = save_config(&config);
     }
     Ok(())
 }
@@ -218,21 +302,41 @@ fn list_log_files() -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-#[tauri::command]
-fn read_log_file(filename: String) -> Result<Vec<firewall::LogEntry>, String> {
+fn resolve_log_file(filename: &str) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(filename);
+    let date = filename
+        .strip_prefix("connections_")
+        .and_then(|value| value.strip_suffix(".log"));
+    let valid_date = date.is_some_and(|value| {
+        value.len() == 10
+            && value.bytes().enumerate().all(|(index, byte)| match index {
+                4 | 7 => byte == b'-',
+                _ => byte.is_ascii_digit(),
+            })
+    });
+    let is_plain_filename = path.components().count() == 1 && valid_date;
+    if !is_plain_filename {
+        return Err("Invalid log filename".to_string());
+    }
+
     let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            parent.join("logs")
-        } else {
-            std::path::PathBuf::from("logs")
-        }
+        exe_path
+            .parent()
+            .map(|parent| parent.join("logs"))
+            .unwrap_or_else(|| std::path::PathBuf::from("logs"))
     } else {
         std::path::PathBuf::from("logs")
     };
     let file_path = logs_dir.join(filename);
-    if !file_path.exists() {
+    if !file_path.is_file() {
         return Err("File not found".to_string());
     }
+    Ok(file_path)
+}
+
+#[tauri::command]
+fn read_log_file(filename: String) -> Result<Vec<firewall::LogEntry>, String> {
+    let file_path = resolve_log_file(&filename)?;
 
     let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let mut entries = Vec::new();
@@ -246,19 +350,7 @@ fn read_log_file(filename: String) -> Result<Vec<firewall::LogEntry>, String> {
 
 #[tauri::command]
 fn open_log_file_in_notepad(filename: String) -> Result<(), String> {
-    let logs_dir = if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            parent.join("logs")
-        } else {
-            std::path::PathBuf::from("logs")
-        }
-    } else {
-        std::path::PathBuf::from("logs")
-    };
-    let file_path = logs_dir.join(filename);
-    if !file_path.exists() {
-        return Err("File not found".to_string());
-    }
+    let file_path = resolve_log_file(&filename)?;
 
     std::process::Command::new("notepad.exe")
         .arg(file_path)
@@ -267,18 +359,42 @@ fn open_log_file_in_notepad(filename: String) -> Result<(), String> {
     Ok(())
 }
 
+fn panic_unlock_logic(app: &AppHandle) {
+    let sound_enabled = {
+        let mut state = STATE.write();
+        state.active_session = "Open".to_string();
+        state.is_locked = false;
+        state.config.sound_enabled
+    };
+    if sound_enabled {
+        let _ = app.emit("play-sound", "unlock");
+    }
+    let _ = app.emit("status-changed", ());
+    update_window_icon(app);
+}
+
 fn start_hotkey_listener(app_handle: AppHandle) {
     std::thread::spawn(move || {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_CONTROL};
         use windows_sys::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
 
-        let hotkey_vk = 0x78; // F9
-        let hotkey_id = 1;
+        let config = STATE.read().config.clone();
+        let hotkey_id = 1_i32;
+        let panic_hotkey_id = 2_i32;
 
         unsafe {
-            let res = RegisterHotKey(0, hotkey_id, 0, hotkey_vk);
+            let res = RegisterHotKey(0, hotkey_id, 0, config.hotkey_vk);
             if res == 0 {
-                eprintln!("Failed to register F9 hotkey");
+                firewall::log_system_message("SYSTEM ERROR: Failed to register lock hotkey.");
+            }
+            let panic_modifiers = if config.panic_hotkey_ctrl {
+                MOD_CONTROL
+            } else {
+                0
+            };
+            let res = RegisterHotKey(0, panic_hotkey_id, panic_modifiers, config.panic_hotkey_vk);
+            if res == 0 {
+                firewall::log_system_message("SYSTEM ERROR: Failed to register panic hotkey.");
             }
         }
 
@@ -286,8 +402,10 @@ fn start_hotkey_listener(app_handle: AppHandle) {
         unsafe {
             while GetMessageW(&mut msg, 0, 0, 0) != 0 {
                 if msg.message == WM_HOTKEY {
-                    if msg.wParam == hotkey_id as usize {
-                        toggle_lock_logic(&app_handle);
+                    match msg.wParam as i32 {
+                        id if id == hotkey_id => toggle_lock_logic(&app_handle),
+                        id if id == panic_hotkey_id => panic_unlock_logic(&app_handle),
+                        _ => {}
                     }
                 }
             }
@@ -298,64 +416,64 @@ fn start_hotkey_listener(app_handle: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
             // Extract WinDivert binaries from packaged resources if they don't exist next to the executable
-            use tauri::Manager;
             use tauri::path::BaseDirectory;
-            use std::fs;
+            use tauri::Manager;
 
             if let Ok(exe_path) = std::env::current_exe() {
                 if let Some(exe_dir) = exe_path.parent() {
-                    // Automatically add the app folder to Windows Defender Exclusions
-                    use std::os::windows::process::CommandExt;
-                    let _ = std::process::Command::new("powershell.exe")
-                        .args(&[
-                            "-Command",
-                            &format!("Add-MpPreference -ExclusionPath '{}'", exe_dir.to_string_lossy()),
-                        ])
-                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                        .status();
-
                     let dll_res = app.path().resolve("WinDivert.dll", BaseDirectory::Resource);
-                    let sys_res = app.path().resolve("WinDivert64.sys", BaseDirectory::Resource);
+                    let sys_res = app
+                        .path()
+                        .resolve("WinDivert64.sys", BaseDirectory::Resource);
 
                     if let Ok(dll_path) = dll_res {
-                        firewall::log_system_message(&format!("SYSTEM: Resolved dll resource path to {:?}", dll_path));
+                        firewall::log_system_message(&format!(
+                            "SYSTEM: Resolved dll resource path to {:?}",
+                            dll_path
+                        ));
                         let dest = exe_dir.join("WinDivert.dll");
-                        let should_copy = if !dest.exists() {
-                            true
-                        } else {
-                            match (dll_path.canonicalize(), dest.canonicalize()) {
-                                (Ok(p1), Ok(p2)) => p1 != p2,
-                                _ => true,
+                        let same_file = matches!(
+                            (dll_path.canonicalize(), dest.canonicalize()),
+                            (Ok(source), Ok(destination)) if source == destination
+                        );
+                        if !same_file && !dest.exists() && dll_path.exists() {
+                            if let Err(error) = std::fs::copy(&dll_path, &dest) {
+                                firewall::log_system_message(&format!(
+                                    "SYSTEM ERROR: Failed to install WinDivert.dll: {}",
+                                    error
+                                ));
                             }
-                        };
-                        if should_copy && dll_path.exists() {
-                            let _ = fs::remove_file(&dest);
-                            let _ = fs::copy(&dll_path, &dest);
                         } else if !dll_path.exists() {
-                            firewall::log_system_message("SYSTEM WARNING: Resolved dll resource file does not exist!");
+                            firewall::log_system_message(
+                                "SYSTEM WARNING: Resolved dll resource file does not exist!",
+                            );
                         }
                     }
                     if let Ok(sys_path) = sys_res {
-                        firewall::log_system_message(&format!("SYSTEM: Resolved sys resource path to {:?}", sys_path));
+                        firewall::log_system_message(&format!(
+                            "SYSTEM: Resolved sys resource path to {:?}",
+                            sys_path
+                        ));
                         let dest = exe_dir.join("WinDivert64.sys");
-                        let should_copy = if !dest.exists() {
-                            true
-                        } else {
-                            match (sys_path.canonicalize(), dest.canonicalize()) {
-                                (Ok(p1), Ok(p2)) => p1 != p2,
-                                _ => true,
+                        let same_file = matches!(
+                            (sys_path.canonicalize(), dest.canonicalize()),
+                            (Ok(source), Ok(destination)) if source == destination
+                        );
+                        if !same_file && !dest.exists() && sys_path.exists() {
+                            if let Err(error) = std::fs::copy(&sys_path, &dest) {
+                                firewall::log_system_message(&format!(
+                                    "SYSTEM ERROR: Failed to install WinDivert64.sys: {}",
+                                    error
+                                ));
                             }
-                        };
-                        if should_copy && sys_path.exists() {
-                            let _ = fs::remove_file(&dest);
-                            let _ = fs::copy(&sys_path, &dest);
                         } else if !sys_path.exists() {
-                            firewall::log_system_message("SYSTEM WARNING: Resolved sys resource file does not exist!");
+                            firewall::log_system_message(
+                                "SYSTEM WARNING: Resolved sys resource file does not exist!",
+                            );
                         }
                     }
                 }
@@ -369,40 +487,64 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let config = STATE.read().config.clone();
                 if let (Some(w_val), Some(h_val)) = (config.window_width, config.window_height) {
-                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: w_val, height: h_val }));
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: w_val,
+                        height: h_val,
+                    }));
                 }
                 if let (Some(x_val), Some(y_val)) = (config.window_x, config.window_y) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: x_val, y: y_val }));
+                    let _ =
+                        window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                            x: x_val,
+                            y: y_val,
+                        }));
                 }
 
                 let w_clone = window.clone();
-                window.on_window_event(move |event| {
-                    match event {
-                        tauri::WindowEvent::Resized(_) => {
-                            if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
-                                if let Ok(outer_size) = w_clone.outer_size() {
-                                    let mut state = STATE.write();
-                                    state.config.window_width = Some(outer_size.width);
-                                    state.config.window_height = Some(outer_size.height);
-                                    let _ = save_config(&state.config);
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Resized(_) => {
+                        if !w_clone.is_minimized().unwrap_or(false)
+                            && !w_clone.is_maximized().unwrap_or(false)
+                        {
+                            if let Ok(outer_size) = w_clone.outer_size() {
+                                let mut state = STATE.write();
+                                state.config.window_width = Some(outer_size.width);
+                                state.config.window_height = Some(outer_size.height);
+                                if let Err(error) = save_config(&state.config) {
+                                    firewall::log_system_message(&format!(
+                                        "SYSTEM ERROR: Failed to save window size: {}",
+                                        error
+                                    ));
                                 }
                             }
                         }
-                        tauri::WindowEvent::Moved(pos) => {
-                            if !w_clone.is_minimized().unwrap_or(false) && !w_clone.is_maximized().unwrap_or(false) {
-                                let mut state = STATE.write();
-                                state.config.window_x = Some(pos.x);
-                                state.config.window_y = Some(pos.y);
-                                let _ = save_config(&state.config);
+                    }
+                    tauri::WindowEvent::Moved(pos) => {
+                        if !w_clone.is_minimized().unwrap_or(false)
+                            && !w_clone.is_maximized().unwrap_or(false)
+                        {
+                            let mut state = STATE.write();
+                            state.config.window_x = Some(pos.x);
+                            state.config.window_y = Some(pos.y);
+                            if let Err(error) = save_config(&state.config) {
+                                firewall::log_system_message(&format!(
+                                    "SYSTEM ERROR: Failed to save window position: {}",
+                                    error
+                                ));
                             }
                         }
-                        tauri::WindowEvent::CloseRequested { .. } => {
-                            let state = STATE.read();
-                            let _ = save_config(&state.config);
-                            firewall::shutdown_firewall();
-                        }
-                        _ => {}
                     }
+                    tauri::WindowEvent::CloseRequested { .. } => {
+                        let state = STATE.read();
+                        if let Err(error) = save_config(&state.config) {
+                            firewall::log_system_message(&format!(
+                                "SYSTEM ERROR: Failed to save configuration on close: {}",
+                                error
+                            ));
+                        }
+                        firewall::shutdown_firewall();
+                    }
+                    _ => {}
                 });
             }
 
@@ -432,4 +574,35 @@ pub fn run() {
                 firewall::shutdown_firewall();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ip_rules_are_validated_and_normalized() {
+        assert_eq!(normalize_ip_rule(" 203.0.113.8 ").unwrap(), "203.0.113.8");
+        assert_eq!(
+            normalize_ip_rule("192.168.1.99/24").unwrap(),
+            "192.168.1.0/24"
+        );
+        assert!(normalize_ip_rule("not-an-ip").is_err());
+        assert!(normalize_ip_rule("2001:db8::1").is_err());
+    }
+
+    #[test]
+    fn log_paths_reject_traversal_and_alternate_streams() {
+        assert!(resolve_log_file("../connections_2026-07-15.log").is_err());
+        assert!(resolve_log_file("connections_2026-07-15.log:secret").is_err());
+        assert!(resolve_log_file("data.json").is_err());
+    }
+
+    #[test]
+    fn lock_toggle_preserves_whitelist_mode() {
+        assert_eq!(toggled_session_mode("Whitelist", true), "Whitelist");
+        assert_eq!(toggled_session_mode("Whitelist", false), "Whitelist");
+        assert_eq!(toggled_session_mode("Open", true), "Lock");
+        assert_eq!(toggled_session_mode("Lock", false), "Open");
+    }
 }
