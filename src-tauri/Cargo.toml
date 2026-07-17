@@ -1,9 +1,11 @@
 [package]
 name = "g-lock-tauri"
-version = "2.0.41"
+version = "2.0.44"
 description = "Firewall-based GTA Online session protection"
 authors = ["G-Lock contributors"]
 edition = "2021"
+license = "LGPL-3.0-only"
+repository = "https://github.com/TypucT-TTV/G-Lock"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,0 +1,19 @@
+G-Lock third-party and license notice
+
+G-Lock was developed using Guardian 3.5.0 by TheMythologist,
+originally created by Speyedr.
+
+Guardian and this derivative work are distributed under the GNU Lesser
+General Public License version 3. The LGPL v3 and GNU GPL v3 license texts
+are included in LICENSE and GPL-3.0.txt.
+
+Upstream source references:
+https://gitlab.com/digitalarc/guardian
+https://gitlab.com/Speyedr/guardian-fastload-fix
+
+G-Lock bundles WinDivert 2.2.2, Copyright (C) Basil, and uses the
+windivert Rust crate. WinDivert is offered under GNU LGPL v3 or
+GNU GPL v2; this distribution uses it under GNU LGPL v3. Source and
+license references are listed in SOURCE and THIRD_PARTY_NOTICES.md.
+
+G-Lock is not affiliated with Rockstar Games or Take-Two Interactive.

@@ -4,25 +4,17 @@ This document outlines the planned improvements and future features for the G-Lo
 
 ---
 
-## Phase 1: Automated Whitelist Sync (Web-to-Client)
+## Phase 1: Protocol Research Before Identity-Based Admission
 
-**Goal:** Automate IP collection for friends, crew members, and stream sponsors (Twitch / Boosty) to eliminate the need for manual IP whitelisting.
+**Status:** Experimental Solo/Whitelist admission is removed from the supported UI.
 
-### 1. Web Portal (Authorization Server)
-- **Tech Stack:** FastAPI / Node.js backend with a simple OAuth frontend hosted on a VPS/Vercel.
-- **Integrations:**
-  - **Twitch OAuth:** Authenticate users and check if they follow/subscribe to the host's channel.
-  - **Boosty / Patreon API:** Validate active subscription status.
-- **IP Detection:**
-  - The server automatically captures the client's public IP address from the HTTP request headers (`X-Forwarded-For` or `X-Real-IP`).
-- **Temporary Storage:**
-  - Whitelisted IPs are stored in a database (e.g., Redis) with a Time-To-Live (TTL) of 12-24 hours to handle dynamic residential IPs.
+**Goal:** Determine whether GTA/Rockstar traffic exposes a stable, protocol-level signal
+that can distinguish service signaling from the actual peer before lobby admission.
 
-### 2. G-Lock Client Sync (Local App)
-- **Secure Sync:**
-  - G-Lock client requests whitelisted IPs from the web portal's API using a secure, private API key (`/api/whitelist?key=TOKEN`).
-- **Dynamic Reloading:**
-  - G-Lock polls the server every 1-2 minutes and dynamically updates `whitelist_ips` in-memory. No filter restarts required.
+- Capture and compare complete real connection sequences instead of relying only on UDP payload size.
+- Do not treat a Rockstar/Azure relay IP as a player identity.
+- Do not restore Solo/Whitelist controls until repeatable integration tests demonstrate reliable behavior.
+- Any future account or community authorization must avoid assuming that one public IP equals one player.
 
 ---
 
@@ -31,7 +23,7 @@ This document outlines the planned improvements and future features for the G-Lo
 **Goal:** Further reduce user interaction during game sessions.
 
 - **Auto-Lock:**
-  - Automatically transition the lobby from "Open" to "Locked" status X minutes after starting a session or once a target number of whitelisted players (e.g., 3-5 friends) has successfully connected.
+  - Automatically transition the lobby from "Open" to "Locked" status X minutes after starting a session.
 - **Status Overlay:**
   - Visual overlay or simple sound notification confirming the lobby lock status.
 
@@ -39,10 +31,13 @@ This document outlines the planned improvements and future features for the G-Lo
 
 ## Phase 3: Connection Logging & UI Refinements (Partially completed)
 
-**Goal:** Simplify manual blacklisting / whitelisting from the G-Lock interface.
+**Goal:** Keep packet diagnostics understandable without unsafe one-click actions.
 
 - **Log Interaction — completed:**
-  - Provide quick Whitelist/Blacklist buttons beside each diagnostic log entry and click-to-copy for its IP address.
+  - Click-to-copy remains available for diagnostic IP addresses.
+  - Quick Whitelist/Blacklist buttons were removed to reduce accidental blocking of relays or shared NAT/CGNAT addresses.
+- **Advanced IP blocking — completed:**
+  - Verified IPv4/CIDR rules are managed under Advanced Settings with explicit limitations.
 - **Reverse Geo-lookup:**
   - Integrate a lightweight offline database (e.g., MaxMind GeoLite2) to show approximate player countries in the connection logs to identify suspicious connection origins.
 
@@ -69,6 +64,6 @@ This document outlines the planned improvements and future features for the G-Lo
 ### 3. Global PPS Ceiling (Anti-Spoofing & Distributed Flood Protection) — completed
 - **Objective:** Defend against distributed floods or IP-spoofing where packets arrive from random/changing IPs.
 - **Mechanism:**
-  - Track the cumulative incoming PPS from non-whitelisted, non-LAN, non-relay sources.
+  - Track the cumulative incoming PPS from unknown, non-LAN, non-relay sources.
   - If the aggregate stream exceeds `ips_global_pps_ceiling`, write an anomaly entry and optionally trigger Auto-Lock.
   - Keep all per-IP tracking maps bounded and expire inactive entries by TTL.

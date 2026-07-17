@@ -17,38 +17,27 @@ This is required to register the WinDivert driver and capture network packets.
 MAIN WINDOW
 -----------
 At the top: a colored indicator and a text status:
-  * Green / "OPEN"            — session open for everyone except players in your blacklist.
+  * Green / "OPEN"            — new peer connections are allowed; IPS and manual IP blocks remain active.
   * Red / "LOCKED"            — new player joins are blocked (background filter drops incoming P2P packets).
 
 The app's taskbar icon also changes color dynamically:
   * Green circle — "Open" mode (safe, default background filtering active).
   * Red circle   — "Locked" mode (new join attempts are blocked).
 
-"OPEN SESSION" BUTTON
-----------------------
-Disables the active filtration mode and returns the firewall to the default "Open" background blacklist filter state.
+SESSION CONTROL
+---------------
+G-Lock has one control: Open/Locked. The button is located directly in the status card.
+  * Locked rejects unknown new peer connections but keeps peers that G-Lock already detected during the current run.
+  * Open allows new connections again. It does not turn G-Lock off: IPS and manual blocked-IP rules remain active.
+  * Before changing lobby, open the session, wait for it to load, and then lock it again.
 
-SESSION MODE BUTTONS
----------------------
-Each button toggles the respective filtration mode on or off (clicking an active mode turns it off):
-
-1. Lock Session
-   Blocks new players from entering your session, but doesn't disconnect anyone already inside.
-   * This mode can be toggled using the F9 hotkey inside the game.
-   * While Open, G-Lock learns the IPs of active peers. Lock keeps those known peers connected and blocks unknown non-service traffic.
-   * NOTE: Before joining another populated session, unlock the firewall (F9, Ctrl+F9, or "Open Session"), join the new lobby, and lock it again once loaded.
-
-2. Solo Session
-   Blocks all incoming connections from other players. Your current session will split, leaving you completely alone in the lobby. Critical Rockstar and Social Club connection traffic remains allowed.
-
-3. Whitelist Session
-   While open, Rockstar signaling is allowed but direct P2P traffic is accepted only from IP addresses and subnets in your Whitelist. An unknown player's real IP is blocked in both directions and shown in the log.
-   While locked, no new player is accepted, including a newly seen whitelisted IP; already-known peers remain connected as in normal Lock mode.
-   The Blacklist has absolute priority in every state and blocks an address in both directions.
+WHY SOLO AND WHITELIST ARE NOT OFFERED
+--------------------------------------
+A joining player first communicates through Rockstar infrastructure, while the useful direct peer IP appears later. UDP packet-size heuristics cannot reliably distinguish every service packet from a player connection. Solo and Whitelist were therefore removed from the supported UI instead of being presented as dependable protection.
 
 F9 HOTKEY
 ---------
-F9 toggles the Open/Locked state globally. In Whitelist mode it preserves that mode: Open admits only whitelisted peers, while Locked admits no new peers. Outside Whitelist mode it keeps the normal Open/Lock behavior.
+F9 toggles the Open/Locked state globally.
   * Works globally even when the GTA game window is focused and running in full screen.
   * Press F9 — locks the session.
   * Press F9 again — unlocks the session.
@@ -72,26 +61,35 @@ G-Lock includes an intelligent Intrusion Prevention System (IPS):
 
 CONNECTION LOG & INTERACTIVE PANEL
 ----------------------------------
-G-Lock shows connection logs in real-time.
+G-Lock shows decisions for captured GTA P2P packets in real time. It is not a verified player roster.
 
-Quick buttons next to each row:
-  * `🟢` (WL) — instantly add the player's IP to the Whitelist.
-  * `🔴` (BL) — instantly add the player's IP to the Blacklist.
+A Rockstar/Azure relay address can appear before the direct peer connection. The real peer IP becomes visible only when direct P2P traffic starts. A relay IP is not a player identity, G-Lock cannot map an IP to a GTA nickname, and multiple players can sometimes share one public IP through NAT/CGNAT.
+
+Click an IP to copy it. The log intentionally has no one-click blocking buttons, reducing the risk of blocking a relay or a shared NAT/CGNAT address.
 
 Color coding:
-  * Yellow — whitelisted friends (to see when friends join).
   * Green  — normal allowed P2P player connections.
   * Blue   — transit connections through Rockstar servers (`[RELAY R*]`).
   * Red    — blocked connection attempts.
 
-EDIT LISTS (WHITELIST / BLACKLIST)
-----------------------------------
-The "Lists" tab allows you to manage whitelist and blacklist addresses:
-  * You can manually add, edit, or delete IP addresses and subnets in CIDR format (e.g. `192.168.1.0/24`).
-  * The "Clear" button resets the list.
-  * Any list modifications take effect immediately without restarting the firewall.
-  * Adding an address to one list automatically removes it from the other. Only valid IPv4 addresses and IPv4 CIDR networks are accepted.
+ADVANCED BLOCKED IP RULES
+-------------------------
+"Settings → Advanced: Blocked IP addresses" accepts IPv4 and CIDR rules (for example, `192.168.1.0/24`). A rule immediately drops captured traffic in both directions after the direct peer IP becomes visible.
+
+This is not a nickname-based player ban and cannot guarantee prevention of the initial Rockstar-mediated join. Public IPs change, and multiple players may share one address through NAT/CGNAT. Add only addresses you have independently verified.
 
 SECURITY
 --------
 G-Lock does not add its folder to Windows Defender exclusions. If security software blocks the signed WinDivert files, review the alert and configure the narrowest possible exception manually if required.
+
+SCOPE AND LIMITATIONS
+---------------------
+G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It does not inject code, read game memory, identify players by nickname, or inspect every Windows connection. IPS rate-limits suspicious captured traffic but cannot guarantee protection of the entire internet connection from every volumetric DDoS attack. Connection logs and data.json may contain public IP addresses; review them before sharing.
+
+ORIGIN AND LICENSE
+------------------
+G-Lock was developed using Guardian 3.5.0 by TheMythologist, originally created by Speyedr. Guardian and this derivative work are distributed under GNU LGPL v3. G-Lock also bundles WinDivert 2.2.2 and uses the windivert Rust crate under LGPL v3 or later. The LGPL and GPL v3 texts are included in LICENSE and GPL-3.0.txt; third-party notices are in THIRD_PARTY_NOTICES.md; source references are preserved in SOURCE:
+  * https://gitlab.com/digitalarc/guardian
+  * https://gitlab.com/Speyedr/guardian-fastload-fix
+  * https://github.com/basil00/WinDivert
+  * https://github.com/Rubensei/windivert-rust

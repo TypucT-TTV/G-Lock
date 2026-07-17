@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct Config {
     pub blacklist: HashMap<String, String>,
-    pub whitelist: HashMap<String, String>,
     pub language: String,
     pub hotkey_vk: u32,
     pub hotkey_name: String,
@@ -45,7 +44,6 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             blacklist: HashMap::new(),
-            whitelist: HashMap::new(),
             language: "ru".to_string(),
             hotkey_vk: 0x78, // VK_F9
             hotkey_name: "F9".to_string(),
@@ -143,12 +141,6 @@ pub fn load_config() -> Config {
                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                     {
                         cfg.blacklist = bl;
-                    }
-                    if let Some(wl) = val
-                        .get("whitelist")
-                        .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    {
-                        cfg.whitelist = wl;
                     }
                     if let Some(lang) = val.get("language").and_then(|v| v.as_str()) {
                         cfg.language = lang.to_string();

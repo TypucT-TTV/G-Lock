@@ -1,8 +1,14 @@
 {
   "name": "g-lock-tauri",
-  "version": "2.0.41",
+  "version": "2.0.44",
   "description": "Firewall-based GTA Online session protection",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TypucT-TTV/G-Lock.git"
+  },
+  "bugs": "https://github.com/TypucT-TTV/G-Lock/issues",
+  "homepage": "https://github.com/TypucT-TTV/G-Lock#readme",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

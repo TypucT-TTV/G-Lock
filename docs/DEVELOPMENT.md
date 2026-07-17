@@ -34,7 +34,7 @@ npm run tauri build
 src/routes/+page.svelte       Svelte UI, локализация и Tauri IPC
 src-tauri/src/main.rs         проверка elevation и точка входа
 src-tauri/src/lib.rs          команды IPC, hotkeys и настройка Tauri
-src-tauri/src/firewall.rs     WinDivert, режимы, relay-классификация и IPS
+src-tauri/src/firewall.rs     WinDivert, Open/Lock, relay-классификация и IPS
 src-tauri/src/config.rs       конфигурация, валидация и атомарное сохранение
 src-tauri/db.json             встроенные диапазоны Azure
 ```
@@ -53,14 +53,15 @@ src-tauri/db.json             встроенные диапазоны Azure
    один раз восстанавливает для службы WinDivert режим `demand` и путь к комплектному
    драйверу через `sc.exe config`, но не останавливает и не удаляет службу.
 7. Capture проверяет оба направления. Peer IP — source для inbound и destination для outbound.
-8. В открытом Whitelist relay/matchmaking проходит без кэширования, прямой трафик разрешён только whitelist.
-   Закрытый Whitelist сохраняет известных peer и блокирует всех новых, включая новые whitelist IP.
+8. Поддерживаются только состояния Open и Lock. Solo/Whitelist не входят в публичный
+   контракт: момент раскрытия direct peer IP не позволяет гарантировать их поведение.
 
 ## Конфигурация и безопасность
 
 - `data.json` хранится рядом с executable и заменяется атомарно через `MoveFileExW`.
-- IPC принимает только известные режимы, типы списков и корректные IPv4/CIDR.
-- Whitelist и blacklist взаимоисключающие; новое правило удаляет адрес из второго списка.
+- IPC принимает только Open/Lock, тип `blacklist` и корректные IPv4/CIDR.
+- Ручной blacklist доступен в расширенных настройках и применяется только к уже
+  раскрытому сетевому адресу, а не к идентификатору игрока.
 - Каталог приложения не добавляется в исключения Windows Defender автоматически.
 - CSP задаётся в `src-tauri/tauri.conf.json`; не отключайте её без отдельного анализа.
 
@@ -75,3 +76,12 @@ cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+## Происхождение и лицензия
+
+При разработке использован Guardian 3.5.0 от TheMythologist, изначально созданный
+Speyedr. Guardian и производная работа распространяются по GNU LGPL v3. Тексты
+LGPL и GPL v3 находятся в `LICENSE` и `GPL-3.0.txt`, ссылки на Guardian,
+WinDivert и Rust-обёртку — в `SOURCE`, а сведения о сторонних компонентах —
+в `THIRD_PARTY_NOTICES.md`. Эти лицензионные файлы включаются в Tauri bundle
+как ресурсы.

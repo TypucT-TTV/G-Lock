@@ -23,11 +23,10 @@ pub struct LogEntry {
 }
 
 pub struct FirewallState {
-    pub active_session: String, // "Open", "Solo", "Whitelist", "Blacklist", "Lock"
+    pub active_session: String, // "Open" or "Lock"
     pub is_locked: bool,
     pub is_running: bool,
     pub driver_error: Option<String>,
-    pub whitelist: HashSet<String>,
     pub blacklist: HashSet<String>,
     pub dynamic_blacklist: Vec<ipnet::Ipv4Net>,
     pub dynamic_blacklist_table: Vec<Vec<ipnet::Ipv4Net>>,
@@ -36,20 +35,6 @@ pub struct FirewallState {
 }
 
 impl FirewallState {
-    pub fn is_ip_whitelisted(&self, ip: &str) -> bool {
-        if self.whitelist.contains(ip) {
-            return true;
-        }
-        if let Ok(ip_addr) = ip.parse::<Ipv4Addr>() {
-            for net in self.whitelist_subnets() {
-                if net.contains(&ip_addr) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     pub fn is_ip_blacklisted(&self, ip: &str) -> bool {
         if self.blacklist.contains(ip) {
             return true;
@@ -82,32 +67,21 @@ impl FirewallState {
 
 // Pre-parsed subnet lists for fast lookup
 struct ParsedSubnets {
-    whitelist_subnets: Vec<ipnet::Ipv4Net>,
     blacklist_subnets: Vec<ipnet::Ipv4Net>,
 }
 
 static SUBNETS: Lazy<RwLock<ParsedSubnets>> = Lazy::new(|| {
     RwLock::new(ParsedSubnets {
-        whitelist_subnets: Vec::new(),
         blacklist_subnets: Vec::new(),
     })
 });
 
 pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
     let config = crate::config::load_config();
-    let whitelist: HashSet<String> = config.whitelist.keys().cloned().collect();
     let blacklist: HashSet<String> = config.blacklist.keys().cloned().collect();
 
-    let mut wl_subnets = Vec::new();
     let mut bl_subnets = Vec::new();
 
-    for ip in &whitelist {
-        if ip.contains('/') {
-            if let Ok(net) = ip.parse::<ipnet::Ipv4Net>() {
-                wl_subnets.push(net);
-            }
-        }
-    }
     for ip in &blacklist {
         if ip.contains('/') {
             if let Ok(net) = ip.parse::<ipnet::Ipv4Net>() {
@@ -118,7 +92,6 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
 
     {
         let mut sub = SUBNETS.write();
-        sub.whitelist_subnets = wl_subnets;
         sub.blacklist_subnets = bl_subnets;
     }
 
@@ -127,7 +100,6 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
         is_locked: false,
         is_running: false,
         driver_error: None,
-        whitelist,
         blacklist,
         dynamic_blacklist: Vec::new(),
         dynamic_blacklist_table: vec![Vec::new(); 65536],
@@ -137,9 +109,6 @@ pub static STATE: Lazy<Arc<RwLock<FirewallState>>> = Lazy::new(|| {
 });
 
 impl FirewallState {
-    fn whitelist_subnets(&self) -> Vec<ipnet::Ipv4Net> {
-        SUBNETS.read().whitelist_subnets.clone()
-    }
     fn blacklist_subnets(&self) -> Vec<ipnet::Ipv4Net> {
         SUBNETS.read().blacklist_subnets.clone()
     }
@@ -358,16 +327,8 @@ pub fn load_dynamic_blacklist(app: &AppHandle) {
 
 pub fn update_subnets_cache() {
     let state = STATE.read();
-    let mut wl_subnets = Vec::new();
     let mut bl_subnets = Vec::new();
 
-    for ip in &state.whitelist {
-        if ip.contains('/') {
-            if let Ok(net) = ip.parse::<ipnet::Ipv4Net>() {
-                wl_subnets.push(net);
-            }
-        }
-    }
     for ip in &state.blacklist {
         if ip.contains('/') {
             if let Ok(net) = ip.parse::<ipnet::Ipv4Net>() {
@@ -377,7 +338,6 @@ pub fn update_subnets_cache() {
     }
 
     let mut sub = SUBNETS.write();
-    sub.whitelist_subnets = wl_subnets;
     sub.blacklist_subnets = bl_subnets;
 }
 
@@ -662,15 +622,13 @@ const KNOWN_PEER_TTL: Duration = Duration::from_secs(30 * 60);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(5);
 const ALERT_COOLDOWN: Duration = Duration::from_secs(10);
 
-struct PacketContext<'a> {
+struct PacketContext {
     payload_len: usize,
-    active_session: &'a str,
     is_locked: bool,
     is_banned: bool,
     is_blacklisted: bool,
     is_known: bool,
     is_relay: bool,
-    is_friend: bool,
     is_lan: bool,
 }
 
@@ -680,7 +638,7 @@ struct PacketDecision {
     cache_peer: bool,
 }
 
-fn decide_packet(context: PacketContext<'_>) -> PacketDecision {
+fn decide_packet(context: PacketContext) -> PacketDecision {
     // A user blacklist rule is absolute, including heartbeat-sized traffic.
     if context.is_blacklisted {
         return PacketDecision {
@@ -707,15 +665,14 @@ fn decide_packet(context: PacketContext<'_>) -> PacketDecision {
             cache_peer: false,
         };
     }
-    if context.is_known && (context.active_session != "Whitelist" || context.is_friend) {
+    if context.is_known {
         return PacketDecision {
             allow: true,
             reason: "Known Allowed",
             cache_peer: true,
         };
     }
-    // Lock preserves already-known peers but rejects every new peer, including
-    // newly seen whitelist entries. This is shared by normal and whitelist mode.
+    // Lock preserves already-known peers but rejects every new peer.
     if context.is_locked {
         return PacketDecision {
             allow: false,
@@ -728,35 +685,6 @@ fn decide_packet(context: PacketContext<'_>) -> PacketDecision {
         };
     }
 
-    if context.active_session == "Whitelist" {
-        if context.is_friend {
-            return PacketDecision {
-                allow: true,
-                reason: "Whitelisted IP",
-                cache_peer: true,
-            };
-        }
-        if context.is_relay || MATCHMAKING_SIZES.contains(&context.payload_len) {
-            return PacketDecision {
-                allow: true,
-                reason: "Whitelist Mode - Signaling Allowed",
-                cache_peer: false,
-            };
-        }
-        return PacketDecision {
-            allow: false,
-            reason: "Blocked - Whitelist Only",
-            cache_peer: false,
-        };
-    }
-
-    if context.is_friend {
-        return PacketDecision {
-            allow: true,
-            reason: "Whitelisted IP",
-            cache_peer: true,
-        };
-    }
     if context.is_lan {
         return PacketDecision {
             allow: true,
@@ -764,26 +692,10 @@ fn decide_packet(context: PacketContext<'_>) -> PacketDecision {
             cache_peer: false,
         };
     }
-    match context.active_session {
-        "Solo" => PacketDecision {
-            allow: false,
-            reason: "Blocked - Solo Session",
-            cache_peer: false,
-        },
-        "Lock" => PacketDecision {
-            allow: false,
-            reason: if MATCHMAKING_SIZES.contains(&context.payload_len) {
-                "Blocked - Locked Session"
-            } else {
-                "Blocked - Unknown During Locked Session"
-            },
-            cache_peer: false,
-        },
-        _ => PacketDecision {
-            allow: true,
-            reason: "Open Session",
-            cache_peer: !context.is_relay,
-        },
+    PacketDecision {
+        allow: true,
+        reason: "Open Session",
+        cache_peer: !context.is_relay,
     }
 }
 
@@ -989,7 +901,6 @@ fn run_packet_capture(app: AppHandle, port: u16) {
     let mut measured_max_pps = 0;
     let mut adaptive_calibrated = false;
 
-    let mut last_session = STATE.read().active_session.clone();
     let mut last_locked = STATE.read().is_locked;
     let mut last_prune = Instant::now();
     let mut global_window_start = Instant::now();
@@ -1041,12 +952,10 @@ fn run_packet_capture(app: AppHandle, port: u16) {
         let payload_len = parsed.payload_len;
         let now = Instant::now();
 
-        let (active_session, is_locked, is_friend, is_blacklisted, is_relay, settings) = {
+        let (is_locked, is_blacklisted, is_relay, settings) = {
             let state = STATE.read();
             (
-                state.active_session.clone(),
                 state.is_locked,
-                state.is_ip_whitelisted(&ip_src),
                 state.is_ip_blacklisted(&ip_src),
                 state.is_ip_relay(&ip_src),
                 RuntimeSettings::from_config(&state.config),
@@ -1057,10 +966,6 @@ fn run_packet_capture(app: AppHandle, port: u16) {
         if last_locked && !is_locked {
             known_allowed.clear();
         }
-        if active_session != last_session && active_session != "Lock" {
-            known_allowed.clear();
-        }
-        last_session = active_session.clone();
         last_locked = is_locked;
 
         if now.duration_since(last_prune) >= PRUNE_INTERVAL {
@@ -1073,7 +978,7 @@ fn run_packet_capture(app: AppHandle, port: u16) {
 
         let is_service =
             HEARTBEAT_SIZES.contains(&payload_len) || MATCHMAKING_SIZES.contains(&payload_len);
-        let is_suspicious = !outbound && !is_service && !is_friend && !is_lan && !is_relay;
+        let is_suspicious = !outbound && !is_service && !is_lan && !is_relay;
         let is_banned = settings.ips_enabled
             && temp_blacklist
                 .get(&ip_src)
@@ -1081,13 +986,11 @@ fn run_packet_capture(app: AppHandle, port: u16) {
 
         let packet_decision = decide_packet(PacketContext {
             payload_len,
-            active_session: &active_session,
             is_locked,
             is_banned,
             is_blacklisted,
             is_known: known_allowed.contains_key(&ip_src),
             is_relay,
-            is_friend,
             is_lan,
         });
 
@@ -1186,9 +1089,7 @@ fn run_packet_capture(app: AppHandle, port: u16) {
                 {
                     let mut state = STATE.write();
                     state.is_locked = true;
-                    if state.active_session != "Whitelist" {
-                        state.active_session = "Lock".to_string();
-                    }
+                    state.active_session = "Lock".to_string();
                 }
                 let _ = app.emit("status-changed", ());
                 crate::update_window_icon(&app);
@@ -1199,7 +1100,6 @@ fn run_packet_capture(app: AppHandle, port: u16) {
         let rate_log = settings.verbose_logging_enabled
             && observed_pps.is_some_and(|pps| pps >= settings.verbose_flood_threshold);
         let should_log = !packet_decision.allow
-            || is_friend
             || is_relay
             || MATCHMAKING_SIZES.contains(&payload_len)
             || is_new_connection
@@ -1314,7 +1214,6 @@ mod tests {
             is_locked: false,
             is_running: false,
             driver_error: None,
-            whitelist: std::collections::HashSet::new(),
             blacklist: std::collections::HashSet::new(),
             dynamic_blacklist: ranges.clone(),
             dynamic_blacklist_table: table,
@@ -1338,24 +1237,20 @@ mod tests {
     fn heartbeat_is_allowed_unless_ip_is_blacklisted() {
         let allowed = decide_packet(PacketContext {
             payload_len: 18,
-            active_session: "Lock",
             is_locked: true,
             is_banned: true,
             is_blacklisted: false,
             is_known: false,
             is_relay: true,
-            is_friend: false,
             is_lan: false,
         });
         let decision = decide_packet(PacketContext {
             payload_len: 18,
-            active_session: "Lock",
             is_locked: true,
             is_banned: true,
             is_blacklisted: true,
             is_known: false,
             is_relay: true,
-            is_friend: false,
             is_lan: false,
         });
         assert!(allowed.allow);
@@ -1367,13 +1262,11 @@ mod tests {
     fn blacklist_overrides_known_peer_cache() {
         let decision = decide_packet(PacketContext {
             payload_len: 100,
-            active_session: "Open",
             is_locked: false,
             is_banned: false,
             is_blacklisted: true,
             is_known: true,
             is_relay: false,
-            is_friend: false,
             is_lan: false,
         });
         assert!(!decision.allow);
@@ -1384,112 +1277,24 @@ mod tests {
     fn locked_session_allows_only_known_peers() {
         let known = decide_packet(PacketContext {
             payload_len: 100,
-            active_session: "Lock",
             is_locked: true,
             is_banned: false,
             is_blacklisted: false,
             is_known: true,
             is_relay: false,
-            is_friend: false,
             is_lan: false,
         });
         let unknown = decide_packet(PacketContext {
             payload_len: 100,
-            active_session: "Lock",
             is_locked: true,
             is_banned: false,
             is_blacklisted: false,
             is_known: false,
             is_relay: false,
-            is_friend: false,
             is_lan: false,
         });
         assert!(known.allow);
         assert!(!unknown.allow);
-    }
-
-    #[test]
-    fn open_whitelist_allows_signaling_and_whitelisted_peers_only() {
-        let signaling = decide_packet(PacketContext {
-            payload_len: 207,
-            active_session: "Whitelist",
-            is_locked: false,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: false,
-            is_relay: false,
-            is_friend: false,
-            is_lan: false,
-        });
-        let friend = decide_packet(PacketContext {
-            payload_len: 100,
-            active_session: "Whitelist",
-            is_locked: false,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: false,
-            is_relay: false,
-            is_friend: true,
-            is_lan: false,
-        });
-        let unknown = decide_packet(PacketContext {
-            payload_len: 100,
-            active_session: "Whitelist",
-            is_locked: false,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: false,
-            is_relay: false,
-            is_friend: false,
-            is_lan: false,
-        });
-
-        assert!(signaling.allow);
-        assert!(!signaling.cache_peer);
-        assert!(friend.allow);
-        assert!(friend.cache_peer);
-        assert!(!unknown.allow);
-    }
-
-    #[test]
-    fn locked_whitelist_rejects_new_whitelisted_peer() {
-        let known = decide_packet(PacketContext {
-            payload_len: 100,
-            active_session: "Whitelist",
-            is_locked: true,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: true,
-            is_relay: false,
-            is_friend: true,
-            is_lan: false,
-        });
-        let new_friend = decide_packet(PacketContext {
-            payload_len: 100,
-            active_session: "Whitelist",
-            is_locked: true,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: false,
-            is_relay: false,
-            is_friend: true,
-            is_lan: false,
-        });
-        let removed_friend = decide_packet(PacketContext {
-            payload_len: 100,
-            active_session: "Whitelist",
-            is_locked: true,
-            is_banned: false,
-            is_blacklisted: false,
-            is_known: true,
-            is_relay: false,
-            is_friend: false,
-            is_lan: false,
-        });
-
-        assert!(known.allow);
-        assert!(!new_friend.allow);
-        assert!(!removed_friend.allow);
     }
 
     #[test]

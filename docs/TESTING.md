@@ -24,13 +24,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - IPv4/UDP parser с переменным IHL;
 - heartbeat разрешён для адресов вне blacklist;
 - абсолютный приоритет blacklist над heartbeat и кэшем разрешённых адресов;
-- разрешение известных и блокировка неизвестных peer в Lock.
-- handshake без кэширования и допуск только whitelist peer в открытом Whitelist;
-- блокировка новых whitelist peer в закрытом Whitelist;
+- разрешение известных и блокировка неизвестных peer в Lock;
+- отклонение неподдерживаемых типов сессий и списков;
 - выбор peer IP по source для inbound и destination для outbound.
 
 Тесты WinDivert не открывают реальный драйвер. Интеграционную проверку захвата,
-переключения F9 и поведения GTA выполняют вручную на Windows из elevated-сборки.
+переключения F9, расширенного blacklist и поведения GTA выполняют вручную на Windows
+из elevated-сборки. Отдельно проверяют, что UI не предлагает Solo/Whitelist и не
+содержит быстрых кнопок блокировки в журнале.
 
 ## CI
 

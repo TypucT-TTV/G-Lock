@@ -162,6 +162,7 @@ cython_debug/
 # JSON files generated during testing
 /data.json
 /db.json
+/archive/g_lock_python/g_lock/data.json
 *.zip
 
 # Node & Frontend
@@ -173,3 +174,7 @@ vite.config.ts.timestamp-*
 
 # Rust & Tauri
 src-tauri/target
+
+# Local assistant and launcher state
+/.claude/settings.local.json
+/Guardian.lnk

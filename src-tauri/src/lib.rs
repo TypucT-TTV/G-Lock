@@ -23,10 +23,8 @@ fn toggle_lock(app: AppHandle) -> serde_json::Value {
     get_status()
 }
 
-fn toggled_session_mode(current_mode: &str, is_locked: bool) -> String {
-    if current_mode == "Whitelist" {
-        "Whitelist".to_string()
-    } else if is_locked {
+fn toggled_session_mode(is_locked: bool) -> String {
+    if is_locked {
         "Lock".to_string()
     } else {
         "Open".to_string()
@@ -61,9 +59,7 @@ fn toggle_lock_logic(app: &AppHandle) {
         is_locked = state.is_locked;
         sound_enabled = state.config.sound_enabled;
 
-        // Whitelist is a persistent mode with its own open/locked state.
-        // Other modes retain the original Open <-> Lock toggle behavior.
-        state.active_session = toggled_session_mode(&state.active_session, is_locked);
+        state.active_session = toggled_session_mode(is_locked);
     }
 
     if sound_enabled {
@@ -76,10 +72,7 @@ fn toggle_lock_logic(app: &AppHandle) {
 
 #[tauri::command]
 fn start_session(session_type: String, app: AppHandle) -> Result<serde_json::Value, String> {
-    if !matches!(
-        session_type.as_str(),
-        "Open" | "Lock" | "Solo" | "Whitelist"
-    ) {
+    if !is_supported_session(&session_type) {
         return Err("Unsupported session type".to_string());
     }
     {
@@ -91,6 +84,10 @@ fn start_session(session_type: String, app: AppHandle) -> Result<serde_json::Val
     let _ = app.emit("status-changed", ());
     update_window_icon(&app);
     Ok(get_status())
+}
+
+fn is_supported_session(value: &str) -> bool {
+    matches!(value, "Open" | "Lock")
 }
 
 #[tauri::command]
@@ -108,27 +105,18 @@ fn stop_session(app: AppHandle) -> serde_json::Value {
 #[tauri::command]
 fn get_lists() -> serde_json::Value {
     let state = STATE.read();
-    let mut whitelist = state.whitelist.iter().cloned().collect::<Vec<String>>();
     let mut blacklist = state.blacklist.iter().cloned().collect::<Vec<String>>();
-    whitelist.sort();
     blacklist.sort();
     serde_json::json!({
-        "whitelist": whitelist,
         "blacklist": blacklist,
     })
 }
 
-#[derive(Clone, Copy)]
-enum ListKind {
-    Whitelist,
-    Blacklist,
-}
-
-fn parse_list_kind(value: &str) -> Result<ListKind, String> {
-    match value {
-        "whitelist" => Ok(ListKind::Whitelist),
-        "blacklist" => Ok(ListKind::Blacklist),
-        _ => Err("Unsupported list type".to_string()),
+fn ensure_blacklist(value: &str) -> Result<(), String> {
+    if value == "blacklist" {
+        Ok(())
+    } else {
+        Err("Only the advanced IP blocklist is supported".to_string())
     }
 }
 
@@ -143,50 +131,19 @@ fn normalize_ip_rule(value: &str) -> Result<String, String> {
     Err("Enter a valid IPv4 address or IPv4 CIDR network".to_string())
 }
 
-fn overlaps_relay_network(state: &firewall::FirewallState, rule: &str) -> bool {
-    if let Ok(ip) = rule.parse::<Ipv4Addr>() {
-        return state.is_ip_relay(&ip.to_string());
-    }
-    let Ok(network) = rule.parse::<ipnet::Ipv4Net>() else {
-        return false;
-    };
-    state
-        .dynamic_blacklist
-        .iter()
-        .any(|relay| network.contains(&relay.network()) || relay.contains(&network.network()))
-}
-
 #[tauri::command]
 fn add_to_list(list_type: String, ip: String, app: AppHandle) -> Result<serde_json::Value, String> {
-    let kind = parse_list_kind(&list_type)?;
+    ensure_blacklist(&list_type)?;
     let ip = normalize_ip_rule(&ip)?;
 
     {
         let mut state = STATE.write();
-        if matches!(kind, ListKind::Whitelist) && overlaps_relay_network(&state, &ip) {
-            return Err("RELAY_PROTECTION".to_string());
-        }
-
         let mut next_config = state.config.clone();
-        let mut next_whitelist = state.whitelist.clone();
         let mut next_blacklist = state.blacklist.clone();
-        match kind {
-            ListKind::Whitelist => {
-                next_blacklist.remove(&ip);
-                next_config.blacklist.remove(&ip);
-                next_whitelist.insert(ip.clone());
-                next_config.whitelist.insert(ip, "".to_string());
-            }
-            ListKind::Blacklist => {
-                next_whitelist.remove(&ip);
-                next_config.whitelist.remove(&ip);
-                next_blacklist.insert(ip.clone());
-                next_config.blacklist.insert(ip, "".to_string());
-            }
-        }
+        next_blacklist.insert(ip.clone());
+        next_config.blacklist.insert(ip, "".to_string());
         save_config(&next_config).map_err(|e| e.to_string())?;
         state.config = next_config;
-        state.whitelist = next_whitelist;
         state.blacklist = next_blacklist;
     }
 
@@ -201,26 +158,16 @@ fn delete_from_list(
     ip: String,
     app: AppHandle,
 ) -> Result<serde_json::Value, String> {
-    let kind = parse_list_kind(&list_type)?;
+    ensure_blacklist(&list_type)?;
     let ip = normalize_ip_rule(&ip)?;
     {
         let mut state = STATE.write();
         let mut next_config = state.config.clone();
-        let mut next_whitelist = state.whitelist.clone();
         let mut next_blacklist = state.blacklist.clone();
-        match kind {
-            ListKind::Whitelist => {
-                next_whitelist.remove(&ip);
-                next_config.whitelist.remove(&ip);
-            }
-            ListKind::Blacklist => {
-                next_blacklist.remove(&ip);
-                next_config.blacklist.remove(&ip);
-            }
-        }
+        next_blacklist.remove(&ip);
+        next_config.blacklist.remove(&ip);
         save_config(&next_config).map_err(|e| e.to_string())?;
         state.config = next_config;
-        state.whitelist = next_whitelist;
         state.blacklist = next_blacklist;
     }
 
@@ -231,20 +178,14 @@ fn delete_from_list(
 
 #[tauri::command]
 fn clear_list(list_type: String, app: AppHandle) -> Result<serde_json::Value, String> {
-    let kind = parse_list_kind(&list_type)?;
+    ensure_blacklist(&list_type)?;
     {
         let mut state = STATE.write();
         let mut next_config = state.config.clone();
-        match kind {
-            ListKind::Whitelist => next_config.whitelist.clear(),
-            ListKind::Blacklist => next_config.blacklist.clear(),
-        }
+        next_config.blacklist.clear();
         save_config(&next_config).map_err(|e| e.to_string())?;
         state.config = next_config;
-        match kind {
-            ListKind::Whitelist => state.whitelist.clear(),
-            ListKind::Blacklist => state.blacklist.clear(),
-        }
+        state.blacklist.clear();
     }
 
     update_subnets_cache();
@@ -262,7 +203,6 @@ fn save_settings(mut config: Config) -> Result<(), String> {
     config.validate()?;
     {
         let mut state = STATE.write();
-        config.whitelist = state.config.whitelist.clone();
         config.blacklist = state.config.blacklist.clone();
         config.window_width = state.config.window_width;
         config.window_height = state.config.window_height;
@@ -599,10 +539,18 @@ mod tests {
     }
 
     #[test]
-    fn lock_toggle_preserves_whitelist_mode() {
-        assert_eq!(toggled_session_mode("Whitelist", true), "Whitelist");
-        assert_eq!(toggled_session_mode("Whitelist", false), "Whitelist");
-        assert_eq!(toggled_session_mode("Open", true), "Lock");
-        assert_eq!(toggled_session_mode("Lock", false), "Open");
+    fn lock_toggle_has_only_open_and_locked_states() {
+        assert_eq!(toggled_session_mode(true), "Lock");
+        assert_eq!(toggled_session_mode(false), "Open");
+    }
+
+    #[test]
+    fn experimental_sessions_and_lists_are_rejected() {
+        assert!(is_supported_session("Open"));
+        assert!(is_supported_session("Lock"));
+        assert!(!is_supported_session("Solo"));
+        assert!(!is_supported_session("Whitelist"));
+        assert!(ensure_blacklist("blacklist").is_ok());
+        assert!(ensure_blacklist("whitelist").is_err());
     }
 }

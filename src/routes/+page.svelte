@@ -5,7 +5,6 @@
 
   type Settings = {
     blacklist: Record<string, string>;
-    whitelist: Record<string, string>;
     language: "ru" | "en";
     hotkey_vk: number;
     hotkey_name: string;
@@ -36,13 +35,21 @@
     window_y: number | null;
   };
 
+  type HelpArticle = {
+    id: string;
+    title: string;
+    short: string;
+    full: string;
+    points?: string[];
+    warning?: string;
+  };
+
   // State definitions using Svelte 5 runes
-  let activeTab = $state("dashboard"); // "dashboard", "lists", "settings", "help"
+  let activeTab = $state("dashboard"); // "dashboard", "settings", "logs", "help", "donate"
   let status = $state({ active_session: "Open", is_locked: false, is_running: false, driver_error: null as string | null });
-  let lists = $state({ whitelist: [] as string[], blacklist: [] as string[] });
+  let lists = $state({ blacklist: [] as string[] });
   let settings = $state<Settings>({
     blacklist: {},
-    whitelist: {},
     language: "ru",
     hotkey_vk: 0x78,
     hotkey_name: "F9",
@@ -76,7 +83,6 @@
   // UI helpers
   let logs = $state([] as Array<{ timestamp: string; ip: string; action: string; size: number; reason: string }>);
   let showDrawer = $state(false);
-  let drawerListType = $state(""); // "whitelist" or "blacklist"
   let drawerIpInput = $state("");
   let drawerError = $state("");
   let saveStatusMsg = $state("");
@@ -86,24 +92,23 @@
     ru: {
       status_open: "🟢 ОТКРЫТО",
       status_locked: "🔴 ЗАПЕРТО",
-      status_solo: "⚡ SOLO-СЕССИЯ",
       status_error: "⚠️ ОШИБКА ДРАЙВЕРА",
-      status_tip: "Кликните, чтобы переключить замок (F9)",
-      modes_title: "Режимы фильтрации",
+      status_tip: "Переключение доступно кнопкой или клавишей F9",
+      status_desc_open: "Новые игроки могут подключаться. Blacklist и IPS продолжают работать.",
+      status_desc_locked: "Новые игроки заблокированы. Уже обнаруженные участники остаются в сессии.",
       err_driver_fail: "Драйвер WinDivert не запущен (проверьте права/антивирус): ",
-      lock_session: "Запереть сессию (Lock)",
-      solo_session: "Solo-сессия",
-      whitelist_session: "Сессия по вайтлисту",
+      lock_session: "Запереть сессию",
       stop_session: "Открыть сессию",
       live_activity: "Сетевая активность в реальном времени",
-      col_wl: "ВЛ",
-      col_bl: "ЧЛ",
+      live_activity_note: "Сначала может появиться relay-адрес Rockstar. Реальный peer IP виден только при прямом P2P; один IP не всегда означает одного конкретного игрока.",
+      legend_allowed: "Разрешено",
+      legend_relay: "Relay Rockstar",
+      legend_blocked: "Заблокировано",
       col_time: "Время",
       col_action: "Действие",
       col_ip: "IP-адрес",
       col_detail: "Детали",
       nav_dash: "Панель управления",
-      nav_lists: "Списки защиты",
       nav_settings: "Настройки",
       nav_help: "Справка",
       nav_donate: "Поблагодарить",
@@ -113,11 +118,14 @@
       btn_open_in_notepad: "Открыть в Блокноте",
       logs_file_list_title: "Список сохраненных файлов логов:",
       logs_view_title: "Содержимое лога:",
-      wl_title: "Белый список (Whitelist)",
-      bl_title: "Черный список (Blacklist)",
+      blocked_ips_title: "Дополнительно: заблокированные IP",
+      blocked_ips_description: "Адрес блокируется в обоих направлениях после того, как прямой peer IP становится виден G-Lock. Это не блокировка игрока по нику и не гарантия предотвращения первоначального входа через Rockstar.",
+      blocked_ips_warning: "Внешний IP может измениться или использоваться несколькими игроками через NAT/CGNAT. Добавляйте только проверенные IPv4/CIDR.",
+      blocked_ips_empty: "Заблокированных адресов нет.",
       btn_clear: "Очистить список",
+      btn_delete: "Удалить",
       btn_add_ip: "Добавить IP-адрес",
-      drawer_title: "Добавить в список",
+      drawer_title: "Добавить заблокированный IP",
       drawer_placeholder: "Введите IP или CIDR...",
       btn_save: "Сохранить",
       btn_cancel: "Отмена",
@@ -135,11 +143,17 @@
       err_sound_size: "Ошибка: Звуковой файл должен быть меньше 1 МБ!",
       settings_ips: "Система предотвращения вторжений (IPS)",
       settings_enable_ips: "Включить лимиты трафика (IPS)",
+      settings_ips_description: "IPS отслеживает подозрительный входящий P2P-трафик. Это дополнительная защита от флуда, а не гарантия против любой DDoS-атаки.",
       settings_multiplier: "Адаптивный множитель PPS:",
+      settings_multiplier_hint: "Во сколько раз допустимый PPS должен быть выше измеренной фоновой активности.",
       settings_measurement: "Время замера базовой активности (сек):",
+      settings_measurement_hint: "Период после запуска фильтрации, за который G-Lock оценивает нормальный фон.",
       settings_fallback: "Резервный порог флуда (PPS):",
+      settings_fallback_hint: "Используется, если надёжно измерить фон не удалось; также задаёт нижнюю границу адаптивного порога.",
       settings_global_ceiling: "Глобальный предел трафика (PPS):",
+      settings_global_hint: "Суммарный предел для подозрительного потока с множества меняющихся IP.",
       settings_autolock: "Авто-запирание сессии при атаке (Auto-Lock)",
+      settings_autolock_hint: "При тревоге переводит сессию в состояние «Заперто» и запрещает новые подключения.",
       settings_lang: "Язык интерфейса:",
       settings_saved: "Настройки успешно сохранены!",
       settings_save: "Сохранить настройки",
@@ -147,37 +161,36 @@
       copy_title: "Кликните для копирования",
       log_file_empty: "Этот файл лога пуст или не содержит корректных записей.",
       log_select_hint: "Выберите файл лога слева для просмотра или открытия в Блокноте.",
-      err_relay: "Защита: Нельзя добавить реле-сервер Rockstar в белый список!",
+      guardian_credit: "При разработке G-Lock использовался Guardian 3.5.0 от TheMythologist, изначально созданный Speyedr. Guardian, WinDivert 2.2.2 и Rust-библиотека windivert распространяются по LGPL v3; NOTICE, LICENSE, GPL-3.0.txt, THIRD_PARTY_NOTICES.md и ссылки на исходники входят в поставку.",
       donate_title: "Поддержка проекта G-Lock",
       donate_p1: "Всем привет. Меня зовут Тёма ТурисТ, я стример.",
       donate_p2: "Я сделал G-Lock для себя. Меня годами преследовали читеры на стримах — крашили игру мне и моим друзьям, срывали эфиры, и сделать с этим ничего было нельзя. Поддержки не было, готовых решений тоже. Тогда я написал защиту сам.",
       donate_p3: "И когда однажды я отыграл целый стрим без единого краша — понял, что это работает. Решил не держать при себе и выложить в открытый доступ, чтобы любой, кого достали гриферы, мог защититься так же.",
       donate_p4: "G-Lock полностью бесплатный, с открытым кодом и без рекламы — и таким останется. Если он спас твой стрим или просто помог спокойно поиграть с друзьями, буду благодарен за любую поддержку. Это идет на время разработки и помогает делать тул лучше. Спасибо, что вы есть 🛡️",
       btn_donate_da: "🎁 Отправить донат (donationalerts.com)",
-      blocked_threats_msg: "G-Lock отбил {n} атак за эту сессию 🛡️ Если помогло — ",
+      blocked_threats_msg: "G-Lock зафиксировал {n} блокировок за эту сессию 🛡️ Если помогло — ",
       support_link: "поддержите разработку"
     },
     en: {
       status_open: "🟢 OPEN",
       status_locked: "🔴 LOCKED",
-      status_solo: "⚡ SOLO SESSION",
       status_error: "⚠️ DRIVER ERROR",
-      status_tip: "Click to toggle the session lock (F9)",
-      modes_title: "Filtering Modes",
+      status_tip: "Use this button or press F9 to toggle the session lock",
+      status_desc_open: "New players may connect. The Blacklist and IPS remain active.",
+      status_desc_locked: "New players are blocked. Peers already detected in this session stay connected.",
       err_driver_fail: "WinDivert driver not running (check privileges/antivirus): ",
       lock_session: "Lock Session",
-      solo_session: "Solo Session",
-      whitelist_session: "Whitelist Session",
       stop_session: "Open Session",
       live_activity: "Real-time Network Activity Logs",
-      col_wl: "WL",
-      col_bl: "BL",
+      live_activity_note: "A Rockstar relay address may appear first. The real peer IP is visible only during direct P2P traffic, and one IP does not always identify one specific player.",
+      legend_allowed: "Allowed",
+      legend_relay: "Rockstar relay",
+      legend_blocked: "Blocked",
       col_time: "Time",
       col_action: "Action",
       col_ip: "IP Address",
       col_detail: "Details",
       nav_dash: "Dashboard",
-      nav_lists: "Protection Lists",
       nav_settings: "Settings",
       nav_help: "Help / FAQ",
       nav_donate: "Donate",
@@ -187,11 +200,14 @@
       btn_open_in_notepad: "Open in Notepad",
       logs_file_list_title: "Saved log files list:",
       logs_view_title: "Log contents:",
-      wl_title: "Whitelist",
-      bl_title: "Blacklist",
+      blocked_ips_title: "Advanced: Blocked IP addresses",
+      blocked_ips_description: "An address is dropped in both directions after its direct peer IP becomes visible to G-Lock. This is not a nickname-based player ban and cannot guarantee prevention of the initial Rockstar-mediated join.",
+      blocked_ips_warning: "Public IPs may change or be shared by multiple players through NAT/CGNAT. Add only verified IPv4/CIDR rules.",
+      blocked_ips_empty: "No blocked addresses.",
       btn_clear: "Clear List",
+      btn_delete: "Delete",
       btn_add_ip: "Add IP Address",
-      drawer_title: "Add to List",
+      drawer_title: "Add a blocked IP",
       drawer_placeholder: "Enter IP or CIDR...",
       btn_save: "Save",
       btn_cancel: "Cancel",
@@ -209,11 +225,17 @@
       err_sound_size: "Error: Audio file must be smaller than 1 MB!",
       settings_ips: "Intrusion Prevention System (IPS)",
       settings_enable_ips: "Enable traffic limits (IPS)",
+      settings_ips_description: "IPS watches suspicious inbound P2P traffic. It is an extra flood-control layer, not a guarantee against every DDoS attack.",
       settings_multiplier: "Adaptive PPS Multiplier:",
+      settings_multiplier_hint: "How many times the allowed PPS may exceed the measured background activity.",
       settings_measurement: "Base Activity Measure Duration (sec):",
+      settings_measurement_hint: "How long G-Lock observes normal traffic after filtering starts.",
       settings_fallback: "Fallback Flood Threshold (PPS):",
+      settings_fallback_hint: "Used when a reliable baseline cannot be measured and as the minimum adaptive threshold.",
       settings_global_ceiling: "Global Traffic Ceiling (PPS):",
+      settings_global_hint: "Aggregate ceiling for suspicious traffic arriving from many changing IP addresses.",
       settings_autolock: "Auto-Lock Session on Attack",
+      settings_autolock_hint: "Changes the session to Locked after an alert and blocks new joins.",
       settings_lang: "Interface Language:",
       settings_saved: "Settings saved successfully!",
       settings_save: "Save settings",
@@ -221,20 +243,23 @@
       copy_title: "Click to copy",
       log_file_empty: "This log file is empty or contains no valid entries.",
       log_select_hint: "Select a log file on the left to view it or open it in Notepad.",
-      err_relay: "Security Alert: Cannot whitelist official Rockstar/Azure relay IP!",
+      guardian_credit: "G-Lock was developed using Guardian 3.5.0 by TheMythologist, originally created by Speyedr. Guardian, WinDivert 2.2.2, and the windivert Rust crate are distributed under LGPL v3; NOTICE, LICENSE, GPL-3.0.txt, THIRD_PARTY_NOTICES.md, and upstream source links are included with the application.",
       donate_title: "Support G-Lock Development",
       donate_p1: "Hi everyone! I'm Tyoma Tourist, a streamer.",
       donate_p2: "I originally built G-Lock for myself. For years, griefers and modders stalked me on stream — constantly crashing my game, kicking my friends, and ruining broadcasts. There was no help from support and no working solutions. So, I decided to write my own protection.",
       donate_p3: "When I finally completed a whole stream without a single crash, I knew it worked. I decided to make it open-source so anyone tired of griefers could play peacefully too.",
       donate_p4: "G-Lock is and will always remain completely free, open-source, and ad-free. If it saved your stream or simply helped you and your friends play in peace, I would be grateful for any support. It directly funds development time and helps make this tool even better. Thank you for being here 🛡️",
       btn_donate_da: "🎁 Send Donation (donationalerts.com)",
-      blocked_threats_msg: "G-Lock warded off {n} threats this session 🛡️ If it helped — ",
+      blocked_threats_msg: "G-Lock recorded {n} blocked events this session 🛡️ If it helped — ",
       support_link: "support development"
     }
   };
 
   // Get active localization
   let activeLang = $derived(settings.language === "en" ? t.en : t.ru);
+  let currentStatusDescription = $derived(
+    status.is_locked ? activeLang.status_desc_locked : activeLang.status_desc_open
+  );
 
   // Accordion expanded ID state
   let expandedHelpId = $state("");
@@ -249,94 +274,172 @@
   }
 
   // Localized Help Accordion Articles
-  const helpArticles = $derived(
+  const helpArticles = $derived<HelpArticle[]>(
     settings.language === "en"
       ? [
           {
-            id: "lock",
-            title: "🔒 Lock Session Mode",
-            short: "Blocks new player connections while keeping existing ones.",
-            full: "This mode blocks incoming matchmaking requests. Players already inside your session will remain connected, but no new players can join. Use F9 globally to toggle this mode on/off. WARNING: Matchmaking is disabled while locked. Always unlock before searching for a new populated lobby, and re-lock only after loading is complete."
+            id: "connection-path",
+            title: "🔗 How a player connection appears",
+            short: "Rockstar signaling usually appears before the direct peer IP.",
+            full: "G-Lock first sees traffic used to arrange the connection and may show a Rockstar/Azure relay address. A remote peer IP becomes visible only when direct GTA P2P traffic starts.",
+            points: [
+              "A relay IP is a service endpoint, not the identity of a player.",
+              "One public IP can be shared by multiple devices or players through NAT/CGNAT.",
+              "G-Lock cannot map an IP address to a GTA nickname."
+            ]
           },
           {
-            id: "solo",
-            title: "⚡ Solo Session Mode",
-            short: "Splits you off into a completely empty lobby where you are the host.",
-            full: "Blocks all incoming and current connections from other players. Your current lobby splits, migrating you into a completely solo lobby. Crucial Social Club, save synchronization, and Rockstar services traffic will remain allowed."
+            id: "session-lock",
+            title: "🔒 Open and Locked",
+            short: "G-Lock has one session control: allow or reject new peer connections.",
+            full: "Open allows new peers. Locked keeps peers already detected during the current run and rejects unknown new peers. Opening the session does not turn G-Lock off: IPS and manually blocked IP rules remain active.",
+            points: [
+              "Unlock before searching for a different populated lobby, then lock again after it loads.",
+              "Use the status-card button or press F9 to toggle Open/Locked.",
+              "Ctrl+F9 performs a panic unlock into Open."
+            ]
           },
           {
-            id: "whitelist",
-            title: "📜 Whitelist Session Mode",
-            short: "Allows connections only from whitelisted IP addresses.",
-            full: "While open, Rockstar signaling remains available and direct P2P traffic is accepted only from Whitelist addresses. While locked, known peers stay connected and every new peer is blocked, including newly seen Whitelist addresses. The Blacklist always takes priority."
+            id: "unsupported-modes",
+            title: "🧪 Why Solo and Whitelist modes are not offered",
+            short: "Rockstar reveals the useful peer IP too late for reliable pre-admission filtering.",
+            full: "A joining player first communicates through Rockstar infrastructure, while the direct peer IP appears only later. Packet-size heuristics cannot reliably distinguish every service packet from a player connection, so Solo and Whitelist modes were removed from the supported UI instead of presenting them as dependable protection."
+          },
+          {
+            id: "blocked-ips",
+            title: "🚫 Advanced blocked IP rules",
+            short: "A verified IPv4/CIDR rule drops captured traffic after the real peer IP is visible.",
+            full: "Blocked IP rules are managed under Settings → Advanced. They apply in both directions before heartbeat or known-peer checks, but they operate on network addresses rather than GTA identities.",
+            points: [
+              "A rule cannot guarantee prevention of the initial Rockstar-mediated join.",
+              "Residential public IPs may change, so saved rules can become stale.",
+              "NAT/CGNAT may cause multiple players to share one public IP."
+            ],
+            warning: "Add only addresses you have independently verified."
           },
           {
             id: "ips",
-            title: "🛡️ Intrusion Prevention System (IPS)",
-            short: "Automatically blocks network flood and DDoS attacks.",
-            full: "IPS measures normal background traffic from other players. If any unknown IP address starts flooding packets above the adaptive threshold, IPS automatically bans that IP for a cooldown period (default: 60 seconds). Crucial Rockstar relays are exempt from bans."
-          },
-          {
-            id: "lists",
-            title: "✍️ Whitelist & Blacklist Editor",
-            short: "Manage safe and blocked IP addresses manually.",
-            full: "In the 'Protection Lists' tab, you can add, edit, or delete IPv4 addresses and CIDR subnets (e.g., 192.168.1.0/24). Adding an address to one list removes it from the other. Blacklisted IPs are always dropped."
+            title: "🛡️ What IPS actually protects",
+            short: "It rate-limits suspicious P2P floods; it is not universal DDoS protection.",
+            full: "IPS measures inbound non-service P2P traffic, derives a per-IP threshold from the startup baseline, and temporarily bans an address that exceeds it. A separate global ceiling detects aggregate traffic from many changing IPs. LAN and Rockstar/Azure relay addresses are excluded from suspicious-rate counting.",
+            warning: "IPS covers the traffic captured by G-Lock; it cannot protect the entire internet connection from every volumetric attack."
           },
           {
             id: "logs",
             title: "📊 Real-time Network Log",
-            short: "Interactive view of all traffic and active player connections.",
-            full: "Displays the captured P2P traffic. Click green/red buttons to add IPs to Whitelist/Blacklist, or click the IP address to copy it. Color codes: Yellow (Friends), Green (P2P), Blue (Rockstar Relay), Red (Blocked)."
+            short: "The log shows packet decisions, not a verified player roster.",
+            full: "ALLOW or BLOCK applies to the captured packet. Blue identifies relay traffic, green an allowed peer packet, and red a blocked packet. Click the IP to copy it; the log intentionally has no one-click blocking actions.",
+            points: [
+              "Known Allowed means the peer was learned before the session was locked.",
+              "Flood Protection means the temporary IPS limit was exceeded."
+            ]
+          },
+          {
+            id: "limits",
+            title: "⚠️ Scope and privacy",
+            short: "G-Lock is a packet filter, not an anti-cheat or identity service.",
+            full: "G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It does not inject code, read game memory, identify a player by nickname, or inspect every connection made by Windows.",
+            warning: "Connection logs and data.json can contain public IP addresses. Review them before sharing."
+          },
+          {
+            id: "troubleshooting",
+            title: "🧭 Why a friend cannot join",
+            short: "Open the session before admitting a friend or changing lobby.",
+            full: "Locked rejects unknown new peers. Open the session before the friend joins, wait for the connection to establish, and lock it again afterward.",
+            points: [
+              "Unlock before changing lobby or admitting a new peer.",
+              "Check the red log row and its reason.",
+              "Check Advanced blocked IP rules if the same address is repeatedly rejected."
+            ]
           },
           {
             id: "hotkeys",
             title: "🔑 Global Hotkeys",
             short: "Keys to control G-Lock without tab-switching out of GTA.",
-            full: "F9: Toggle Lock Session on/off. Ctrl+F9: Panic Unlock (instantly drops all blocks). Ctrl+/Ctrl-: Zoom UI in/out. Ctrl+0: Reset UI zoom."
+            full: "F9 toggles Open/Locked. Ctrl+F9 performs a panic unlock into Open. Ctrl+/Ctrl- changes UI zoom and Ctrl+0 resets it."
           }
         ]
       : [
           {
-            id: "lock",
-            title: "🔒 Режим «Запереть сессию»",
-            short: "Блокирует подключение новых игроков, не разрывая связь с текущими.",
-            full: "Этот режим фильтрует входящие P2P-пакеты матчмейкинга для новых IP-адресов. Игроки, которые уже находятся в вашей сессии, смогут остаться, но новые зайти не смогут. Нажмите F9 глобально для быстрого включения/выключения. ВНИМАНИЕ: Поиск новых лобби не работает в запертом режиме. Всегда разблокируйте сессию перед поиском новой игры, и заприте обратно после полной загрузки."
+            id: "connection-path",
+            title: "🔗 Как появляется подключение игрока",
+            short: "Сигнализация Rockstar обычно появляется раньше прямого peer IP.",
+            full: "Сначала G-Lock видит трафик, который организует соединение, поэтому в журнале может появиться relay-адрес Rockstar/Azure. Удалённый peer IP становится виден только после начала прямого GTA P2P-трафика.",
+            points: [
+              "Relay IP — служебная точка, а не идентификатор игрока.",
+              "Один внешний IP может использоваться несколькими устройствами или игроками через NAT/CGNAT.",
+              "G-Lock не умеет сопоставлять IP с ником GTA."
+            ]
           },
           {
-            id: "solo",
-            title: "⚡ Режим «Solo-сессия»",
-            short: "Отделяет вас в пустое лобби, где вы гарантированно будете хостом.",
-            full: "Полностью блокирует соединения со всеми другими игроками. Текущее лобби разделится, и вы останетесь в сессии совершенно один. При этом критически важный трафик Rockstar Games, Social Club и облачных сохранений продолжает работать."
+            id: "session-lock",
+            title: "🔒 Открыто и заперто",
+            short: "У G-Lock одно управление сессией: разрешать или отклонять новые peer-подключения.",
+            full: "Открыто разрешает новых peer. Заперто сохраняет участников, уже обнаруженных во время текущего запуска, и отклоняет неизвестных новых. Открытие сессии не выключает G-Lock: IPS и ручные правила блокировки IP продолжают работать.",
+            points: [
+              "Перед поиском другого населённого лобби откройте сессию и заприте снова после загрузки.",
+              "Используйте кнопку в карточке статуса или клавишу F9.",
+              "Ctrl+F9 выполняет экстренное открытие сессии."
+            ]
           },
           {
-            id: "whitelist",
-            title: "📜 Режим «Сессия по вайтлисту»",
-            short: "Разрешает подключения только с IP-адресов из белого списка.",
-            full: "В открытом состоянии служебный handshake Rockstar проходит, а прямой P2P-трафик разрешён только адресам из Вайтлиста. В запертом состоянии известные участники остаются, а все новые блокируются, включая новые адреса Вайтлиста. Черный список всегда имеет абсолютный приоритет."
+            id: "unsupported-modes",
+            title: "🧪 Почему нет режимов Solo и Whitelist",
+            short: "Rockstar раскрывает полезный peer IP слишком поздно для надёжной фильтрации до входа.",
+            full: "Входящий игрок сначала общается через инфраструктуру Rockstar, а прямой peer IP появляется только позже. Эвристики по размеру пакета не позволяют надёжно отличить весь служебный трафик от подключения игрока, поэтому Solo и Whitelist убраны из поддерживаемого интерфейса, а не выдаются за гарантированную защиту."
+          },
+          {
+            id: "blocked-ips",
+            title: "🚫 Дополнительные правила блокировки IP",
+            short: "Проверенное правило IPv4/CIDR отбрасывает трафик после появления реального peer IP.",
+            full: "Заблокированные IP управляются в разделе «Настройки → Дополнительно». Правило действует в обоих направлениях раньше heartbeat и кэша известных peer, но относится к сетевому адресу, а не к личности или нику GTA.",
+            points: [
+              "Правило не гарантирует предотвращение первоначального входа через Rockstar.",
+              "Домашний внешний IP может измениться, и сохранённое правило устареет.",
+              "Из-за NAT/CGNAT один публичный IP могут использовать несколько игроков."
+            ],
+            warning: "Добавляйте только адреса, которые проверили независимо."
           },
           {
             id: "ips",
-            title: "🛡️ Система предотвращения вторжений (IPS)",
-            short: "Автоматически блокирует сетевой флуд и DDoS-атаки.",
-            full: "IPS замеряет обычную фоновую активность игроков. Если какой-то неизвестный IP превышает динамический лимит пакетов в секунду (PPS), IPS забанит его на время остывания (по умолчанию 60 секунд), чтобы предотвратить зависание лобби. Серверы Rockstar исключены из банов."
-          },
-          {
-            id: "lists",
-            title: "✍️ Управление списками защиты",
-            short: "Ручное добавление и редактирование правил фильтрации.",
-            full: "На вкладке 'Списки защиты' вы можете просматривать, добавлять, изменять и удалять IPv4-адреса и подсети в формате CIDR (например, 192.168.1.0/24). Добавление адреса в один список удаляет его из другого. Черный список блокирует адрес всегда."
+            title: "🛡️ От чего реально защищает IPS",
+            short: "Он ограничивает подозрительный P2P-флуд, но не заменяет полноценную DDoS-защиту.",
+            full: "IPS измеряет входящий non-service P2P-трафик, выводит порог для каждого IP из стартового фонового замера и временно банит адрес при превышении. Отдельный глобальный предел замечает суммарный поток с множества меняющихся IP. LAN и relay-адреса Rockstar/Azure исключены из подсчёта подозрительной частоты.",
+            warning: "IPS охватывает трафик, который перехватывает G-Lock, и не может защитить весь интернет-канал от любой объёмной атаки."
           },
           {
             id: "logs",
             title: "📊 Интерактивный лог активности",
-            short: "Отображение сетевых пакетов и быстрые действия в реальном времени.",
-            full: "Вы можете видеть IP-адреса игроков на панели лога. Клик по кнопке 🟢 добавляет IP в белый список, 🔴 — в черный, а клик по самому IP копирует адрес. Цвета: Желтый (Друзья), Зеленый (P2P), Синий (Релей R*), Красный (Блокирован)."
+            short: "Журнал показывает решения по пакетам, а не подтверждённый список игроков.",
+            full: "ALLOW или BLOCK относится к перехваченному пакету. Синий означает relay, зелёный — разрешённый peer-пакет, красный — заблокированный. Клик по IP копирует адрес; намеренно опасных кнопок мгновенной блокировки в журнале нет.",
+            points: [
+              "Known Allowed — peer был изучен до запирания сессии.",
+              "Flood Protection — превышен временный лимит IPS."
+            ]
+          },
+          {
+            id: "limits",
+            title: "⚠️ Границы работы и приватность",
+            short: "G-Lock — пакетный фильтр, а не античит и не сервис идентификации.",
+            full: "G-Lock фильтрует IPv4 UDP P2P-трафик на порту GTA 6672. Он не внедряет код, не читает память игры, не определяет игрока по нику и не анализирует вообще все соединения Windows.",
+            warning: "В логах соединений и data.json могут находиться внешние IP. Проверяйте файлы перед публикацией."
+          },
+          {
+            id: "troubleshooting",
+            title: "🧭 Почему друг не может подключиться",
+            short: "Откройте сессию перед подключением друга или сменой лобби.",
+            full: "Состояние «Заперто» отклоняет неизвестных новых peer. Откройте сессию перед входом друга, дождитесь установки соединения и после этого заприте её снова.",
+            points: [
+              "Откройте сессию перед сменой лобби или допуском нового peer.",
+              "Посмотрите красную строку журнала и указанную причину.",
+              "Проверьте дополнительные заблокированные IP, если один адрес постоянно отклоняется."
+            ]
           },
           {
             id: "hotkeys",
             title: "🔑 Глобальные горячие клавиши",
             short: "Управление фаерволом без переключения из игры.",
-            full: "F9: Быстро запереть/отпереть сессию. Ctrl+F9: Panic Unlock (экстренное разблокирование). Ctrl + / Ctrl -: Масштаб интерфейса. Ctrl + 0: Сбросить масштаб."
+            full: "F9 переключает Open/Locked. Ctrl+F9 выполняет экстренное открытие сессии. Ctrl + / Ctrl - меняют масштаб интерфейса, Ctrl + 0 сбрасывает его."
           }
         ]
   );
@@ -599,42 +702,17 @@
     status = await invoke("toggle_lock");
   }
 
-  async function handleStartSession(mode: string) {
-    if (status.active_session === mode) {
-      await handleStopSession();
-    } else {
-      status = await invoke("start_session", { sessionType: mode });
-    }
+  async function handleDeleteFromList(ip: string) {
+    lists = await invoke("delete_from_list", { listType: "blacklist", ip });
   }
 
-  async function handleStopSession() {
-    status = await invoke("stop_session");
-  }
-
-  async function handleAddToListDirect(listType: string, ip: string) {
-    try {
-      await invoke("add_to_list", { listType, ip });
-    } catch (e: any) {
-      if (e === "RELAY_PROTECTION") {
-        alert(activeLang.err_relay);
-      } else {
-        alert(e);
-      }
-    }
-  }
-
-  async function handleDeleteFromList(listType: string, ip: string) {
-    lists = await invoke("delete_from_list", { listType, ip });
-  }
-
-  async function handleClearList(listType: string) {
+  async function handleClearList() {
     if (confirm(activeLang.btn_clear + "?")) {
-      lists = await invoke("clear_list", { listType });
+      lists = await invoke("clear_list", { listType: "blacklist" });
     }
   }
 
-  function openAddDrawer(listType: string) {
-    drawerListType = listType;
+  function openAddDrawer() {
     drawerIpInput = "";
     drawerError = "";
     showDrawer = true;
@@ -643,14 +721,10 @@
   async function submitDrawer() {
     if (!drawerIpInput.trim()) return;
     try {
-      await invoke("add_to_list", { listType: drawerListType, ip: drawerIpInput.trim() });
+      lists = await invoke("add_to_list", { listType: "blacklist", ip: drawerIpInput.trim() });
       showDrawer = false;
     } catch (e: any) {
-      if (e === "RELAY_PROTECTION") {
-        drawerError = activeLang.err_relay;
-      } else {
-        drawerError = e.toString();
-      }
+      drawerError = e.toString();
     }
   }
 
@@ -677,15 +751,12 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.41</span></h2>
+      <h2>G-Lock <span class="ver">v2.0.44</span></h2>
     </div>
 
     <nav class="nav-links">
       <button class="nav-btn" class:active={activeTab === "dashboard"} onclick={() => activeTab = "dashboard"}>
         <span class="icon">📊</span> {activeLang.nav_dash}
-      </button>
-      <button class="nav-btn" class:active={activeTab === "lists"} onclick={() => activeTab = "lists"}>
-        <span class="icon">🛡️</span> {activeLang.nav_lists}
       </button>
       <button class="nav-btn" class:active={activeTab === "settings"} onclick={() => activeTab = "settings"}>
         <span class="icon">⚙️</span> {activeLang.nav_settings}
@@ -715,7 +786,7 @@
     {#if showDrawer}
       <button type="button" class="drawer-overlay" aria-label={activeLang.btn_cancel} onclick={() => showDrawer = false}></button>
       <div class="drawer">
-        <h3>{activeLang.drawer_title} ({drawerListType === "whitelist" ? "WL" : "BL"})</h3>
+        <h3>{activeLang.drawer_title}</h3>
         <div class="form-group">
           <input
             type="text"
@@ -747,15 +818,6 @@
             class="status-card"
             class:locked={status.is_locked}
             class:error={!!status.driver_error}
-            role="button"
-            tabindex={status.driver_error ? undefined : 0}
-            onclick={status.driver_error ? null : handleToggleLock}
-            onkeydown={(event) => {
-              if (!status.driver_error && (event.key === "Enter" || event.key === " ")) {
-                event.preventDefault();
-                handleToggleLock();
-              }
-            }}
           >
             <div class="glow-layer"></div>
             <div class="card-inner">
@@ -763,14 +825,15 @@
               <h2 class="status-text">
                 {#if status.driver_error}
                   {activeLang.status_error}
-                {:else if status.active_session === "Solo"}
-                  {activeLang.status_solo}
                 {:else if status.is_locked}
                   {activeLang.status_locked}
                 {:else}
                   {activeLang.status_open}
                 {/if}
               </h2>
+              {#if !status.driver_error}
+                <p class="status-description">{currentStatusDescription}</p>
+              {/if}
               <span class="status-tip">
                 {#if status.driver_error}
                   {activeLang.err_driver_fail} {status.driver_error}
@@ -778,6 +841,12 @@
                   {activeLang.status_tip}
                 {/if}
               </span>
+
+              {#if !status.driver_error}
+                <button type="button" class="status-toggle-btn" class:unlock={status.is_locked} onclick={handleToggleLock}>
+                  {status.is_locked ? `🔓 ${activeLang.stop_session}` : `🔒 ${activeLang.lock_session}`}
+                </button>
+              {/if}
               
               <div class="threats-banner">
                 <span>
@@ -790,47 +859,24 @@
             </div>
           </div>
 
-          <!-- Session Controls Card -->
-          <div class="controls-card">
-            <h3>{activeLang.modes_title}</h3>
-            <div class="controls-buttons">
-              <button
-                class="ctrl-btn"
-                class:active={status.active_session === "Lock"}
-                onclick={() => handleStartSession("Lock")}
-              >
-                🔒 {activeLang.lock_session}
-              </button>
-              <button
-                class="ctrl-btn"
-                class:active={status.active_session === "Solo"}
-                onclick={() => handleStartSession("Solo")}
-              >
-                👤 {activeLang.solo_session}
-              </button>
-              <button
-                class="ctrl-btn"
-                class:active={status.active_session === "Whitelist"}
-                onclick={() => handleStartSession("Whitelist")}
-              >
-                📋 {activeLang.whitelist_session}
-              </button>
-              <button class="ctrl-btn stop-btn" onclick={handleStopSession}>
-                🛑 {activeLang.stop_session}
-              </button>
-            </div>
-          </div>
         </section>
 
         <!-- Live Network Activity Log -->
         <section class="logs-panel">
           <h3>{activeLang.live_activity}</h3>
+          <div class="guidance-strip compact-guidance">
+            <span class="guidance-icon">ℹ️</span>
+            <p>{activeLang.live_activity_note}</p>
+          </div>
+          <div class="log-legend" aria-label={activeLang.live_activity}>
+            <span class="legend-item allowed">{activeLang.legend_allowed}</span>
+            <span class="legend-item relay">{activeLang.legend_relay}</span>
+            <span class="legend-item blocked">{activeLang.legend_blocked}</span>
+          </div>
           <div class="table-container">
             <table class="logs-table">
               <thead>
                 <tr>
-                  <th style="width: 40px;">{activeLang.col_wl}</th>
-                  <th style="width: 40px;">{activeLang.col_bl}</th>
                   <th style="width: 90px;">{activeLang.col_time}</th>
                   <th style="width: 80px;">{activeLang.col_action}</th>
                   <th style="width: 140px;">{activeLang.col_ip}</th>
@@ -839,15 +885,8 @@
               </thead>
               <tbody>
                 {#each logs as log}
-                  {@const isWl = lists.whitelist.includes(log.ip)}
                   {@const isRelay = log.reason.toLowerCase().includes("relay") || log.reason.toLowerCase().includes("tunnel")}
-                  <tr class="log-row" class:wl-row={isWl} class:relay-row={isRelay} class:blocked-row={log.action === "BLOCK"}>
-                    <td class="btn-cell">
-                      <button class="quick-add wl" onclick={() => handleAddToListDirect("whitelist", log.ip)}>🟢</button>
-                    </td>
-                    <td class="btn-cell">
-                      <button class="quick-add bl" onclick={() => handleAddToListDirect("blacklist", log.ip)}>🔴</button>
-                    </td>
+                  <tr class="log-row" class:relay-row={isRelay} class:blocked-row={log.action === "BLOCK"}>
                     <td>{log.timestamp.split(" ")[1] || log.timestamp}</td>
                     <td class="act-col">{log.action}</td>
                     <td class="ip-col" onclick={() => copyIpToClipboard(log.ip)} title={activeLang.copy_title}>
@@ -863,52 +902,7 @@
       </div>
     {/if}
 
-    <!-- Tab 2: Protection Lists -->
-    {#if activeTab === "lists"}
-      <div class="tab-panel">
-        <header class="panel-header flex-header">
-          <h1>{activeLang.nav_lists}</h1>
-        </header>
-
-        <section class="lists-container">
-          <!-- Whitelist Panel -->
-          <div class="list-pane">
-            <div class="pane-header">
-              <h3>📜 {activeLang.wl_title}</h3>
-              <button class="add-ip-btn" onclick={() => openAddDrawer("whitelist")}>+</button>
-            </div>
-            <div class="list-box">
-              {#each lists.whitelist as ip}
-                <div class="list-item">
-                  <span class="ip-val">{ip}</span>
-                  <button class="del-btn" onclick={() => handleDeleteFromList("whitelist", ip)}>✕</button>
-                </div>
-              {/each}
-            </div>
-            <button class="clear-btn" onclick={() => handleClearList("whitelist")}>🧹 {activeLang.btn_clear}</button>
-          </div>
-
-          <!-- Blacklist Panel -->
-          <div class="list-pane">
-            <div class="pane-header">
-              <h3>🚫 {activeLang.bl_title}</h3>
-              <button class="add-ip-btn" onclick={() => openAddDrawer("blacklist")}>+</button>
-            </div>
-            <div class="list-box">
-              {#each lists.blacklist as ip}
-                <div class="list-item">
-                  <span class="ip-val">{ip}</span>
-                  <button class="del-btn" onclick={() => handleDeleteFromList("blacklist", ip)}>✕</button>
-                </div>
-              {/each}
-            </div>
-            <button class="clear-btn" onclick={() => handleClearList("blacklist")}>🧹 {activeLang.btn_clear}</button>
-          </div>
-        </section>
-      </div>
-    {/if}
-
-    <!-- Tab 3: Settings -->
+    <!-- Tab 2: Settings -->
     {#if activeTab === "settings"}
       <div class="tab-panel">
         <header class="panel-header">
@@ -994,6 +988,7 @@
           <!-- IPS Configurations -->
           <div class="settings-section">
             <h3>🔒 {activeLang.settings_ips}</h3>
+            <p class="section-description">{activeLang.settings_ips_description}</p>
 
             <div class="setting-item">
               <label class="switch-container">
@@ -1010,6 +1005,7 @@
                   <span class="slider-value">{settings.ips_adaptive_multiplier}x</span>
                 </div>
                 <input type="range" min="2" max="15" bind:value={settings.ips_adaptive_multiplier} />
+                <p class="setting-help">{activeLang.settings_multiplier_hint}</p>
               </div>
 
               <div class="setting-item">
@@ -1018,6 +1014,7 @@
                   <span class="slider-value">{settings.ips_adaptive_measurement_seconds} s</span>
                 </div>
                 <input type="range" min="15" max="120" bind:value={settings.ips_adaptive_measurement_seconds} />
+                <p class="setting-help">{activeLang.settings_measurement_hint}</p>
               </div>
 
               <div class="setting-item">
@@ -1026,6 +1023,7 @@
                   <span class="slider-value">{settings.ips_fallback_threshold} PPS</span>
                 </div>
                 <input type="range" min="50" max="500" step="10" bind:value={settings.ips_fallback_threshold} />
+                <p class="setting-help">{activeLang.settings_fallback_hint}</p>
               </div>
 
               <div class="setting-item">
@@ -1034,6 +1032,7 @@
                   <span class="slider-value">{settings.ips_global_pps_ceiling} PPS</span>
                 </div>
                 <input type="range" min="500" max="10000" step="100" bind:value={settings.ips_global_pps_ceiling} />
+                <p class="setting-help">{activeLang.settings_global_hint}</p>
               </div>
 
               <div class="setting-item">
@@ -1042,7 +1041,32 @@
                   <span class="slider"></span>
                   <span class="label-text">{activeLang.settings_autolock}</span>
                 </label>
+                <p class="setting-help switch-help">{activeLang.settings_autolock_hint}</p>
               </div>
+            {/if}
+          </div>
+
+          <div class="settings-section advanced-blocklist">
+            <div class="pane-header">
+              <h3>🚫 {activeLang.blocked_ips_title}</h3>
+              <button class="add-ip-btn" title={activeLang.btn_add_ip} aria-label={activeLang.btn_add_ip} onclick={openAddDrawer}>+</button>
+            </div>
+            <p class="section-description">{activeLang.blocked_ips_description}</p>
+            <p class="blocklist-warning">⚠️ {activeLang.blocked_ips_warning}</p>
+            <div class="list-box settings-list-box">
+              {#if lists.blacklist.length === 0}
+                <div class="empty-state compact-empty">{activeLang.blocked_ips_empty}</div>
+              {:else}
+                {#each lists.blacklist as ip}
+                  <div class="list-item">
+                    <span class="ip-val">{ip}</span>
+                    <button class="del-btn" aria-label={`${activeLang.btn_delete}: ${ip}`} onclick={() => handleDeleteFromList(ip)}>✕</button>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+            {#if lists.blacklist.length > 0}
+              <button class="clear-btn" onclick={handleClearList}>🧹 {activeLang.btn_clear}</button>
             {/if}
           </div>
 
@@ -1063,6 +1087,11 @@
         <header class="panel-header">
           <h1>{activeLang.logs_title}</h1>
         </header>
+
+        <div class="guidance-strip logs-guidance">
+          <span class="guidance-icon">ℹ️</span>
+          <p>{activeLang.live_activity_note}</p>
+        </div>
 
         <section class="logs-layout-grid">
           <!-- Left side: list of log files -->
@@ -1148,8 +1177,20 @@
             <h3>ℹ️ {settings.language === "en" ? "About G-Lock" : "О проекте G-Lock"}</h3>
             <p>
               {settings.language === "en"
-                ? "G-Lock is a personal firewall for safe gaming in GTA Online. It automates Windows Filtering Platform rules via the WinDivert driver, blocking malicious players, griefers, modders, and protecting you from network floods and DDoS attacks."
-                : "G-Lock — это персональный фаервол для безопасной игры в GTA Online. Он полностью автоматизирует правила Windows Filtering Platform через низкоуровневый драйвер WinDivert, блокируя посторонних игроков, читеров и защищая от DDoS-атак."}
+                ? "G-Lock is a local IPv4/UDP packet filter for controlling GTA Online P2P sessions through WinDivert. It does not read game memory or identify players by nickname, and its IPS is an additional flood-control layer rather than universal DDoS protection."
+                : "G-Lock — локальный фильтр IPv4/UDP-пакетов для управления P2P-сессией GTA Online через WinDivert. Он не читает память игры, не определяет игроков по нику, а его IPS является дополнительной защитой от флуда, но не универсальной DDoS-защитой."}
+            </p>
+            <p class="guardian-credit">{activeLang.guardian_credit}</p>
+            <p class="guardian-links">
+              <a href="https://gitlab.com/digitalarc/guardian" target="_blank" rel="noopener noreferrer">Guardian source</a>
+              <span>·</span>
+              <a href="https://gitlab.com/Speyedr/guardian-fastload-fix" target="_blank" rel="noopener noreferrer">Original source</a>
+              <span>•</span>
+              <a href="https://github.com/basil00/WinDivert" target="_blank" rel="noopener noreferrer">WinDivert source</a>
+              <span>•</span>
+              <a href="https://github.com/Rubensei/windivert-rust" target="_blank" rel="noopener noreferrer">Rust crate source</a>
+              <span>·</span>
+              <span>GNU LGPL v3</span>
             </p>
           </div>
 
@@ -1165,6 +1206,16 @@
                   <div class="accordion-content">
                     <p class="accordion-short"><strong>{settings.language === "en" ? "Summary" : "Коротко"}:</strong> {article.short}</p>
                     <p class="accordion-full">{article.full}</p>
+                    {#if article.points}
+                      <ul class="accordion-points">
+                        {#each article.points as point}
+                          <li>{point}</li>
+                        {/each}
+                      </ul>
+                    {/if}
+                    {#if article.warning}
+                      <p class="accordion-warning">⚠️ {article.warning}</p>
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -1344,16 +1395,10 @@
     font-weight: 700;
   }
 
-  .flex-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
   /* Dashboard View */
   .dashboard-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 24px;
     margin-bottom: 24px;
   }
@@ -1363,7 +1408,7 @@
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 24px;
-    cursor: pointer;
+    cursor: default;
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
@@ -1425,10 +1470,47 @@
     font-weight: 800;
   }
 
+  .status-description {
+    margin: 2px 0 0;
+    max-width: 620px;
+    color: var(--text-main);
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
   .status-tip {
     font-size: 0.8rem;
     color: var(--text-dim);
     margin-top: 8px;
+  }
+
+  .status-toggle-btn {
+    align-self: flex-start;
+    margin-top: 8px;
+    padding: 10px 18px;
+    border: 1px solid rgba(231, 76, 60, 0.45);
+    border-radius: 8px;
+    background: rgba(231, 76, 60, 0.1);
+    color: var(--text-main);
+    font-family: var(--font-stack);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .status-toggle-btn:hover {
+    border-color: var(--accent-red);
+    background: rgba(231, 76, 60, 0.18);
+  }
+
+  .status-toggle-btn.unlock {
+    border-color: rgba(46, 204, 113, 0.45);
+    background: rgba(46, 204, 113, 0.1);
+  }
+
+  .status-toggle-btn.unlock:hover {
+    border-color: var(--accent-green);
+    background: rgba(46, 204, 113, 0.18);
   }
 
   .threats-banner {
@@ -1460,59 +1542,6 @@
     opacity: 0.8;
   }
 
-  .controls-card {
-    background-color: var(--bg-card);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .controls-card h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: var(--text-dim);
-  }
-
-  .controls-buttons {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-
-  .ctrl-btn {
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--text-main);
-    padding: 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: all 0.2s;
-  }
-
-  .ctrl-btn:hover {
-    background-color: rgba(255, 255, 255, 0.06);
-    border-color: var(--accent-cyan);
-  }
-
-  .ctrl-btn.active {
-    background: linear-gradient(135deg, rgba(57, 242, 236, 0.2), transparent);
-    border-color: var(--accent-cyan);
-    box-shadow: 0 0 10px rgba(57, 242, 236, 0.1);
-  }
-
-  .ctrl-btn.stop-btn {
-    border-color: rgba(231, 76, 60, 0.2);
-  }
-
-  .ctrl-btn.stop-btn:hover {
-    background-color: rgba(231, 76, 60, 0.1);
-    border-color: var(--accent-red);
-  }
-
   /* Logs Panel */
   .logs-panel {
     background-color: var(--bg-card);
@@ -1530,6 +1559,63 @@
     font-size: 1.1rem;
     color: var(--text-dim);
   }
+
+  .guidance-strip {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(57, 242, 236, 0.15);
+    border-radius: 9px;
+    background: linear-gradient(135deg, rgba(57, 242, 236, 0.07), rgba(255, 61, 240, 0.025));
+    color: var(--text-dim);
+    backdrop-filter: blur(12px);
+  }
+
+  .guidance-strip p {
+    margin: 0;
+    font-size: 0.83rem;
+    line-height: 1.45;
+  }
+
+  .guidance-icon {
+    flex: 0 0 auto;
+    color: var(--accent-cyan);
+  }
+
+  .compact-guidance {
+    margin-bottom: 10px;
+    padding: 9px 12px;
+  }
+
+  .log-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text-dim);
+    font-size: 0.72rem;
+  }
+
+  .legend-item::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-green);
+  }
+
+  .legend-item.relay::before { background: var(--accent-cyan); }
+  .legend-item.blocked::before { background: var(--accent-red); }
 
   .table-container {
     overflow-y: auto;
@@ -1557,14 +1643,11 @@
 
   .log-row {
     transition: background-color 0.2s;
+    color: var(--accent-green);
   }
 
   .log-row:hover {
     background-color: rgba(255, 255, 255, 0.01);
-  }
-
-  .log-row.wl-row {
-    color: var(--accent-yellow);
   }
 
   .log-row.relay-row {
@@ -1576,45 +1659,9 @@
     background-color: rgba(231, 76, 60, 0.02);
   }
 
-  .btn-cell {
-    padding: 4px 6px !important;
-    text-align: center;
-  }
-
-  .quick-add {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.95rem;
-    padding: 0;
-    transition: transform 0.15s;
-  }
-
-  .quick-add:hover {
-    transform: scale(1.25);
-  }
-
   .ip-col {
     cursor: pointer;
     text-decoration: underline dotted;
-  }
-
-  /* Lists tab */
-  .lists-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-    height: calc(100% - 60px);
-  }
-
-  .list-pane {
-    background-color: var(--bg-card);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
   }
 
   .pane-header {
@@ -1807,7 +1854,7 @@
     display: flex;
     flex-direction: column;
     gap: 24px;
-    max-width: 600px;
+    max-width: 760px;
   }
 
   .settings-section {
@@ -1824,6 +1871,41 @@
     margin: 0 0 16px 0;
     font-size: 1.05rem;
     color: var(--text-dim);
+  }
+
+  .section-description {
+    margin: -6px 0 16px;
+    color: var(--text-dim);
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+
+  .advanced-blocklist .pane-header {
+    margin-bottom: 12px;
+  }
+
+  .advanced-blocklist .pane-header h3 {
+    margin-bottom: 0;
+  }
+
+  .blocklist-warning {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid rgba(241, 196, 15, 0.2);
+    border-radius: 8px;
+    background: rgba(241, 196, 15, 0.05);
+    color: #d8c684;
+    font-size: 0.78rem;
+    line-height: 1.45;
+  }
+
+  .settings-list-box {
+    max-height: 190px;
+    min-height: 54px;
+  }
+
+  .compact-empty {
+    padding: 10px;
   }
 
   .switch-container {
@@ -1898,6 +1980,17 @@
     height: 6px;
     border-radius: 3px;
     outline: none;
+  }
+
+  .setting-help {
+    margin: 6px 0 0;
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
+  .switch-help {
+    margin-left: 56px;
   }
 
   .lang-selector-sidebar {
@@ -2066,7 +2159,7 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
-    max-width: 700px;
+    width: min(860px, 100%);
   }
 
   .faq-accordion {
@@ -2135,6 +2228,25 @@
   .accordion-full {
     margin: 0;
     color: var(--text-dim);
+  }
+
+  .accordion-points {
+    margin: 12px 0 0;
+    padding-left: 20px;
+    color: var(--text-dim);
+  }
+
+  .accordion-points li + li {
+    margin-top: 6px;
+  }
+
+  .accordion-warning {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--accent-yellow);
+    border-radius: 4px;
+    background: rgba(241, 196, 15, 0.06);
+    color: #d9c985;
   }
 
   .info-card {
@@ -2227,8 +2339,31 @@
     display: grid;
     grid-template-columns: 300px 1fr;
     gap: 20px;
-    height: calc(100vh - 120px);
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
+  }
+
+  .guardian-credit {
+    margin-top: 14px !important;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .guardian-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .guardian-links a {
+    color: var(--accent-cyan);
+  }
+
+  .logs-guidance {
+    margin-bottom: 16px;
   }
 
   .logs-sidebar-card {
