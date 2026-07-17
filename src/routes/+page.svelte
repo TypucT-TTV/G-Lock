@@ -8,6 +8,9 @@
     language: "ru" | "en";
     hotkey_vk: number;
     hotkey_name: string;
+    hotkey_ctrl: boolean;
+    hotkey_alt: boolean;
+    hotkey_shift: boolean;
     sound_enabled: boolean;
     sound_lock_freq: number;
     sound_lock_dur: number;
@@ -44,6 +47,15 @@
     warning?: string;
   };
 
+  type UpdateCheck = {
+    current_version: string;
+    latest_version: string | null;
+    update_available: boolean;
+    release_url: string;
+    download_url: string | null;
+    error: string | null;
+  };
+
   // State definitions using Svelte 5 runes
   let activeTab = $state("dashboard"); // "dashboard", "settings", "logs", "help", "donate"
   let status = $state({ active_session: "Open", is_locked: false, is_running: false, driver_error: null as string | null });
@@ -53,6 +65,9 @@
     language: "ru",
     hotkey_vk: 0x78,
     hotkey_name: "F9",
+    hotkey_ctrl: false,
+    hotkey_alt: false,
+    hotkey_shift: false,
     sound_enabled: true,
     sound_lock_freq: 900,
     sound_lock_dur: 200,
@@ -86,6 +101,11 @@
   let drawerIpInput = $state("");
   let drawerError = $state("");
   let saveStatusMsg = $state("");
+  let updateState = $state<"checking" | "current" | "available" | "error">("checking");
+  let updateUrl = $state("https://github.com/TypucT-TTV/G-Lock/releases/latest");
+  let latestVersion = $state("");
+  let capturingHotkey = $state(false);
+  let hotkeyCaptureError = $state("");
 
   // Translations dictionary
   const t = {
@@ -93,7 +113,11 @@
       status_open: "🟢 ОТКРЫТО",
       status_locked: "🔴 ЗАПЕРТО",
       status_error: "⚠️ ОШИБКА ДРАЙВЕРА",
-      status_tip: "Переключение доступно кнопкой или клавишей F9",
+      status_tip: "Переключение доступно кнопкой или клавишей",
+      update_checking: "Проверка версии…",
+      update_current: "Актуальная версия",
+      update_available: "Доступно обновление",
+      update_failed: "Не удалось проверить версию",
       status_desc_open: "Новые игроки могут подключаться. Blacklist и IPS продолжают работать.",
       status_desc_locked: "Новые игроки заблокированы. Уже обнаруженные участники остаются в сессии.",
       err_driver_fail: "Драйвер WinDivert не запущен (проверьте права/антивирус): ",
@@ -155,6 +179,16 @@
       settings_autolock: "Авто-запирание сессии при атаке (Auto-Lock)",
       settings_autolock_hint: "При тревоге переводит сессию в состояние «Заперто» и запрещает новые подключения.",
       settings_lang: "Язык интерфейса:",
+      settings_hotkey_title: "Глобальная горячая клавиша",
+      settings_hotkey_label: "Открыть / запереть сессию:",
+      settings_hotkey_hint: "Нажмите на поле и введите F-клавишу либо сочетание с Ctrl или Alt; Shift можно добавить дополнительно. Применяется после сохранения.",
+      settings_hotkey_change: "Изменить",
+      settings_hotkey_capture: "Нажмите сочетание…",
+      settings_hotkey_cancel: "Esc — отмена",
+      settings_hotkey_plain_error: "Эта клавиша без Ctrl или Alt перехватывала бы обычный ввод. Добавьте Ctrl или Alt; Shift можно использовать дополнительно.",
+      settings_hotkey_conflict: "Ctrl+F9 зарезервировано для резервного открытия сессии.",
+      settings_hotkey_unsupported: "Эта клавиша или системное сочетание не поддерживается.",
+      settings_hotkey_fallback: "Резервное открытие сессии: Ctrl+F9. Оно снимает Lock, но не выключает G-Lock и не удаляет blacklist.",
       settings_saved: "Настройки успешно сохранены!",
       settings_save: "Сохранить настройки",
       copy_success: "IP-адрес скопирован в буфер обмена",
@@ -175,7 +209,11 @@
       status_open: "🟢 OPEN",
       status_locked: "🔴 LOCKED",
       status_error: "⚠️ DRIVER ERROR",
-      status_tip: "Use this button or press F9 to toggle the session lock",
+      status_tip: "Use this button or the hotkey to toggle the session lock:",
+      update_checking: "Checking version…",
+      update_current: "Up to date",
+      update_available: "Update available",
+      update_failed: "Version check unavailable",
       status_desc_open: "New players may connect. The Blacklist and IPS remain active.",
       status_desc_locked: "New players are blocked. Peers already detected in this session stay connected.",
       err_driver_fail: "WinDivert driver not running (check privileges/antivirus): ",
@@ -237,6 +275,16 @@
       settings_autolock: "Auto-Lock Session on Attack",
       settings_autolock_hint: "Changes the session to Locked after an alert and blocks new joins.",
       settings_lang: "Interface Language:",
+      settings_hotkey_title: "Global hotkey",
+      settings_hotkey_label: "Open / lock session:",
+      settings_hotkey_hint: "Click the field, then press an F-key or a shortcut containing Ctrl or Alt; Shift may be added. Applies after saving.",
+      settings_hotkey_change: "Change",
+      settings_hotkey_capture: "Press a shortcut…",
+      settings_hotkey_cancel: "Esc to cancel",
+      settings_hotkey_plain_error: "This key without Ctrl or Alt would intercept normal typing. Add Ctrl or Alt; Shift may be included too.",
+      settings_hotkey_conflict: "Ctrl+F9 is reserved for the fallback session open action.",
+      settings_hotkey_unsupported: "This key or system shortcut is not supported.",
+      settings_hotkey_fallback: "Fallback session open: Ctrl+F9. It removes Lock but does not disable G-Lock or clear the blacklist.",
       settings_saved: "Settings saved successfully!",
       settings_save: "Save settings",
       copy_success: "IP Address copied to clipboard",
@@ -295,8 +343,8 @@
             full: "Open allows new peers. Locked keeps peers already detected during the current run and rejects unknown new peers. Opening the session does not turn G-Lock off: IPS and manually blocked IP rules remain active.",
             points: [
               "Unlock before searching for a different populated lobby, then lock again after it loads.",
-              "Use the status-card button or press F9 to toggle Open/Locked.",
-              "Ctrl+F9 performs a panic unlock into Open."
+              `Use the status-card button or press ${settings.hotkey_name} to toggle Open/Locked.`,
+              "Ctrl+F9 is a fallback that forces the session back to Open without disabling G-Lock or clearing blocked IP rules."
             ]
           },
           {
@@ -339,7 +387,7 @@
             title: "⚠️ Scope and privacy",
             short: "G-Lock is a packet filter, not an anti-cheat or identity service.",
             full: "G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It does not inject code, read game memory, identify a player by nickname, or inspect every connection made by Windows.",
-            warning: "Connection logs and data.json can contain public IP addresses. Review them before sharing."
+            warning: "Connection logs and %LOCALAPPDATA%\\G-Lock\\data.json can contain public IP addresses. Review them before sharing."
           },
           {
             id: "troubleshooting",
@@ -356,7 +404,7 @@
             id: "hotkeys",
             title: "🔑 Global Hotkeys",
             short: "Keys to control G-Lock without tab-switching out of GTA.",
-            full: "F9 toggles Open/Locked. Ctrl+F9 performs a panic unlock into Open. Ctrl+/Ctrl- changes UI zoom and Ctrl+0 resets it."
+            full: `${settings.hotkey_name} toggles Open/Locked. You can change this shortcut in Settings. Ctrl+F9 is the fixed fallback that forces Open without disabling G-Lock or clearing blocked IP rules. Ctrl+/Ctrl- changes UI zoom and Ctrl+0 resets it.`
           }
         ]
       : [
@@ -378,8 +426,8 @@
             full: "Открыто разрешает новых peer. Заперто сохраняет участников, уже обнаруженных во время текущего запуска, и отклоняет неизвестных новых. Открытие сессии не выключает G-Lock: IPS и ручные правила блокировки IP продолжают работать.",
             points: [
               "Перед поиском другого населённого лобби откройте сессию и заприте снова после загрузки.",
-              "Используйте кнопку в карточке статуса или клавишу F9.",
-              "Ctrl+F9 выполняет экстренное открытие сессии."
+              `Используйте кнопку в карточке статуса или клавишу ${settings.hotkey_name}.`,
+              "Ctrl+F9 — резервное открытие: оно принудительно возвращает «Открыто», не выключая G-Lock и не удаляя правила блокировки IP."
             ]
           },
           {
@@ -422,7 +470,7 @@
             title: "⚠️ Границы работы и приватность",
             short: "G-Lock — пакетный фильтр, а не античит и не сервис идентификации.",
             full: "G-Lock фильтрует IPv4 UDP P2P-трафик на порту GTA 6672. Он не внедряет код, не читает память игры, не определяет игрока по нику и не анализирует вообще все соединения Windows.",
-            warning: "В логах соединений и data.json могут находиться внешние IP. Проверяйте файлы перед публикацией."
+            warning: "В логах соединений и %LOCALAPPDATA%\\G-Lock\\data.json могут находиться внешние IP. Проверяйте файлы перед публикацией."
           },
           {
             id: "troubleshooting",
@@ -439,7 +487,7 @@
             id: "hotkeys",
             title: "🔑 Глобальные горячие клавиши",
             short: "Управление фаерволом без переключения из игры.",
-            full: "F9 переключает Open/Locked. Ctrl+F9 выполняет экстренное открытие сессии. Ctrl + / Ctrl - меняют масштаб интерфейса, Ctrl + 0 сбрасывает его."
+            full: `${settings.hotkey_name} переключает Open/Locked; сочетание можно изменить в настройках. Ctrl+F9 остаётся резервным открытием: оно возвращает «Открыто», не выключая G-Lock и не удаляя правила блокировки IP. Ctrl + / Ctrl - меняют масштаб интерфейса, Ctrl + 0 сбрасывает его.`
           }
         ]
   );
@@ -471,6 +519,119 @@
     } catch (error) {
       console.error("Failed to load settings", error);
     }
+  }
+
+  async function checkForUpdates() {
+    updateState = "checking";
+    try {
+      const result = await invoke<UpdateCheck>("check_for_updates");
+      updateUrl = result.download_url || result.release_url;
+      latestVersion = result.latest_version || "";
+      updateState = result.error
+        ? "error"
+        : result.update_available
+          ? "available"
+          : "current";
+    } catch (error) {
+      console.error("Failed to check for updates", error);
+      updateState = "error";
+    }
+  }
+
+  function startHotkeyCapture() {
+    hotkeyCaptureError = "";
+    capturingHotkey = true;
+  }
+
+  function keyFromCode(code: string): { vk: number; name: string; allowsPlain: boolean } | null {
+    const functionMatch = /^F([1-9]|1[0-9]|2[0-4])$/.exec(code);
+    if (functionMatch) {
+      const number = Number(functionMatch[1]);
+      return { vk: 0x6f + number, name: `F${number}`, allowsPlain: true };
+    }
+
+    const letterMatch = /^Key([A-Z])$/.exec(code);
+    if (letterMatch) {
+      return { vk: letterMatch[1].charCodeAt(0), name: letterMatch[1], allowsPlain: false };
+    }
+
+    const digitMatch = /^Digit([0-9])$/.exec(code);
+    if (digitMatch) {
+      return { vk: 0x30 + Number(digitMatch[1]), name: digitMatch[1], allowsPlain: false };
+    }
+
+    const numpadMatch = /^Numpad([0-9])$/.exec(code);
+    if (numpadMatch) {
+      return { vk: 0x60 + Number(numpadMatch[1]), name: `Num${numpadMatch[1]}`, allowsPlain: false };
+    }
+
+    const supported: Record<string, { vk: number; name: string }> = {
+      Space: { vk: 0x20, name: "Space" },
+      PageUp: { vk: 0x21, name: "PageUp" },
+      PageDown: { vk: 0x22, name: "PageDown" },
+      End: { vk: 0x23, name: "End" },
+      Home: { vk: 0x24, name: "Home" },
+      ArrowLeft: { vk: 0x25, name: "Left" },
+      ArrowUp: { vk: 0x26, name: "Up" },
+      ArrowRight: { vk: 0x27, name: "Right" },
+      ArrowDown: { vk: 0x28, name: "Down" },
+      Insert: { vk: 0x2d, name: "Insert" },
+      Delete: { vk: 0x2e, name: "Delete" },
+    };
+    const key = supported[code];
+    return key ? { ...key, allowsPlain: false } : null;
+  }
+
+  function captureHotkey(event: KeyboardEvent): boolean {
+    if (!capturingHotkey) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return true;
+
+    if (event.code === "Escape") {
+      capturingHotkey = false;
+      hotkeyCaptureError = "";
+      return true;
+    }
+
+    if (["ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"].includes(event.code)) {
+      return true;
+    }
+
+    const key = keyFromCode(event.code);
+    const hasSafeModifier = event.ctrlKey || event.altKey;
+    const reservedZoom = event.ctrlKey && ["Digit0", "Numpad0", "Equal", "NumpadAdd", "Minus", "NumpadSubtract"].includes(event.code);
+    const reservedSystem = event.metaKey || (event.altKey && event.code === "F4") || reservedZoom;
+
+    if (!key || reservedSystem) {
+      hotkeyCaptureError = activeLang.settings_hotkey_unsupported;
+      return true;
+    }
+    if (!key.allowsPlain && !hasSafeModifier) {
+      hotkeyCaptureError = activeLang.settings_hotkey_plain_error;
+      return true;
+    }
+    if (event.ctrlKey && !event.altKey && !event.shiftKey && key.vk === 0x78) {
+      hotkeyCaptureError = activeLang.settings_hotkey_conflict;
+      return true;
+    }
+
+    const parts = [
+      event.ctrlKey ? "Ctrl" : "",
+      event.altKey ? "Alt" : "",
+      event.shiftKey ? "Shift" : "",
+      key.name,
+    ].filter(Boolean);
+
+    settings.hotkey_vk = key.vk;
+    settings.hotkey_name = parts.join("+");
+    settings.hotkey_ctrl = event.ctrlKey;
+    settings.hotkey_alt = event.altKey;
+    settings.hotkey_shift = event.shiftKey;
+    capturingHotkey = false;
+    hotkeyCaptureError = "";
+    return true;
   }
 
   let zoomFactor = $state(1.0);
@@ -646,9 +807,12 @@
     fetchStatus();
     fetchLists();
     fetchSettings();
+    void checkForUpdates();
 
     // Zoom keys listener (Ctrl + / Ctrl - / Ctrl 0)
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (captureHotkey(e)) return;
+
       if (e.ctrlKey) {
         if (e.key === "=" || e.key === "+") {
           e.preventDefault();
@@ -751,7 +915,24 @@
   <aside class="sidebar">
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
-      <h2>G-Lock <span class="ver">v2.0.44</span></h2>
+      <div class="brand-block">
+        <h2>G-Lock <span class="ver">v2.0.46</span></h2>
+        {#if updateState === "available"}
+          <a
+            class="version-status update-available"
+            href={updateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={latestVersion ? `${activeLang.update_available}: ${latestVersion}` : activeLang.update_available}
+          >{activeLang.update_available}</a>
+        {:else if updateState === "current"}
+          <span class="version-status current-version">{activeLang.update_current}</span>
+        {:else if updateState === "error"}
+          <button type="button" class="version-status version-retry" onclick={checkForUpdates}>{activeLang.update_failed}</button>
+        {:else}
+          <span class="version-status version-checking">{activeLang.update_checking}</span>
+        {/if}
+      </div>
     </div>
 
     <nav class="nav-links">
@@ -838,7 +1019,7 @@
                 {#if status.driver_error}
                   {activeLang.err_driver_fail} {status.driver_error}
                 {:else}
-                  {activeLang.status_tip}
+                  {activeLang.status_tip} <strong>{settings.hotkey_name}</strong>
                 {/if}
               </span>
 
@@ -910,6 +1091,29 @@
         </header>
 
         <section class="settings-form">
+          <div class="settings-section">
+            <h3>⌨️ {activeLang.settings_hotkey_title}</h3>
+            <div class="setting-item hotkey-setting">
+              <label for="session-hotkey">{activeLang.settings_hotkey_label}</label>
+              <button
+                id="session-hotkey"
+                type="button"
+                class="hotkey-capture"
+                class:capturing={capturingHotkey}
+                aria-pressed={capturingHotkey}
+                onclick={startHotkeyCapture}
+              >
+                <span class="hotkey-value">{capturingHotkey ? activeLang.settings_hotkey_capture : settings.hotkey_name}</span>
+                <span class="hotkey-action">{capturingHotkey ? activeLang.settings_hotkey_cancel : activeLang.settings_hotkey_change}</span>
+              </button>
+              <p class="setting-help">{activeLang.settings_hotkey_hint}</p>
+              <p class="setting-help fallback-hotkey">{activeLang.settings_hotkey_fallback}</p>
+              {#if hotkeyCaptureError}
+                <p class="hotkey-error" role="alert">{hotkeyCaptureError}</p>
+              {/if}
+            </div>
+          </div>
+
           <!-- Advanced Audio Alert Configuration -->
           <div class="settings-section">
             <h3>🔊 {activeLang.settings_sound_title}</h3>
@@ -1300,6 +1504,36 @@
     overflow-y: auto;
   }
 
+  .sidebar,
+  .content-viewport {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 155, 180, 0.55) transparent;
+  }
+
+  .sidebar::-webkit-scrollbar,
+  .content-viewport::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  .sidebar::-webkit-scrollbar-track,
+  .content-viewport::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  .sidebar::-webkit-scrollbar-thumb,
+  .content-viewport::-webkit-scrollbar-thumb {
+    min-height: 42px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(139, 155, 180, 0.68), rgba(57, 242, 236, 0.38)) padding-box;
+  }
+
+  .sidebar::-webkit-scrollbar-thumb:hover,
+  .content-viewport::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(224, 230, 240, 0.78), rgba(57, 242, 236, 0.72)) padding-box;
+  }
+
   .logo-container {
     display: flex;
     align-items: center;
@@ -1320,10 +1554,50 @@
     letter-spacing: 0.5px;
   }
 
+  .brand-block {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
   .ver {
     font-size: 0.75rem;
     color: var(--accent-cyan);
     font-weight: 500;
+  }
+
+  .version-status {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 0.68rem;
+    line-height: 1.25;
+    text-align: left;
+    color: var(--text-dim);
+  }
+
+  .update-available,
+  .version-retry {
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .update-available {
+    color: #f1c40f;
+  }
+
+  .current-version {
+    color: #69d89b;
+  }
+
+  .version-retry:hover,
+  .update-available:hover {
+    color: #fff;
   }
 
   .nav-links {
@@ -1986,6 +2260,67 @@
     margin: 6px 0 0;
     color: var(--text-dim);
     font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
+  .hotkey-setting label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-main);
+    font-size: 0.9rem;
+  }
+
+  .hotkey-capture {
+    width: min(430px, 100%);
+    min-height: 58px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background-color: rgba(8, 13, 24, 0.8);
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+    outline: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  }
+
+  .hotkey-capture:hover,
+  .hotkey-capture:focus-visible {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 2px rgba(54, 215, 229, 0.12);
+  }
+
+  .hotkey-capture.capturing {
+    border-color: var(--accent-cyan);
+    background-color: rgba(57, 242, 236, 0.08);
+    box-shadow: 0 0 0 3px rgba(57, 242, 236, 0.1), 0 0 24px rgba(57, 242, 236, 0.08);
+  }
+
+  .hotkey-value {
+    color: var(--text-main);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .hotkey-action {
+    color: var(--accent-cyan);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .fallback-hotkey {
+    color: #b8a96e;
+  }
+
+  .hotkey-error {
+    margin: 8px 0 0;
+    color: #ff8f86;
+    font-size: 0.78rem;
     line-height: 1.4;
   }
 

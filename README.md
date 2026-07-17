@@ -6,7 +6,8 @@ modifying game files.
 
 ## Features
 
-- Global `F9` lock/unlock hotkey and `Ctrl+F9` panic unlock.
+- Captured global lock/unlock shortcuts (`F1`–`F24` or combinations containing `Ctrl`/`Alt`, with optional `Shift`) and a fixed `Ctrl+F9` fallback open action.
+- Startup update check with a direct link to the latest GitHub installer.
 - A single, explicit Open/Locked session state.
 - Advanced IPv4/CIDR blocking for verified peer addresses.
 - Adaptive per-IP flood protection and a bounded global PPS ceiling.
@@ -40,9 +41,9 @@ Build outputs are written under `src-tauri/target/release/bundle/`.
 
 1. Start G-Lock before joining GTA Online.
 2. Leave the session Open while your group joins. G-Lock learns the active peer IPs.
-3. Press `F9` or use the status-card button. Known peers remain connected; unknown non-service
+3. Press the configured hotkey (default: `F9`) or use the status-card button. Known peers remain connected; unknown non-service
    traffic is blocked.
-4. Press `F9` again, `Ctrl+F9`, or use the same button before joining another public lobby.
+4. Press the hotkey again, `Ctrl+F9`, or use the same button before joining another public lobby.
 
 Heartbeat packets required by Rockstar services are passed unless the peer address
 is explicitly blacklisted. Rockstar/Azure relay ranges are loaded from the bundled
@@ -60,8 +61,10 @@ G-Lock runs elevated because WinDivert requires administrator rights. It does no
 Windows Defender exclusions. If security software blocks the signed WinDivert files,
 review the alert and configure the narrowest possible exception manually.
 
-Connection logs and `data.json` are stored next to the executable. Do not publish
-them without reviewing contained IP addresses.
+Settings and blocked IP rules are stored in `%LOCALAPPDATA%\G-Lock\data.json`, so
+installer upgrades preserve them. Existing configurations next to the executable
+are migrated automatically. Connection logs remain next to the executable. Do not
+publish either without reviewing contained IP addresses.
 
 G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It is not an anti-cheat,
 does not identify players by nickname, and does not inspect every Windows network

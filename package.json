@@ -1,6 +1,6 @@
 {
   "name": "g-lock-tauri",
-  "version": "2.0.44",
+  "version": "2.0.46",
   "description": "Firewall-based GTA Online session protection",
   "type": "module",
   "repository": {

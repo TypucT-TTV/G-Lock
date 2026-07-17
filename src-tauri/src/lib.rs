@@ -3,8 +3,125 @@ mod firewall;
 
 use config::{save_config, Config};
 use firewall::{start_firewall, update_subnets_cache, STATE};
+use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::{AppHandle, Emitter};
+
+const GITHUB_LATEST_RELEASE_API: &str =
+    "https://api.github.com/repos/TypucT-TTV/G-Lock/releases/latest";
+const GITHUB_RELEASES_URL: &str = "https://github.com/TypucT-TTV/G-Lock/releases/latest";
+const HOTKEY_RELOAD_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 1;
+static HOTKEY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Debug, Deserialize)]
+struct GitHubAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: String,
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateCheck {
+    current_version: String,
+    latest_version: Option<String>,
+    update_available: bool,
+    release_url: String,
+    download_url: Option<String>,
+    error: Option<String>,
+}
+
+fn version_triplet(version: &str) -> Option<(u64, u64, u64)> {
+    let normalized = version
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split('-')
+        .next()?;
+    let mut parts = normalized.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    matches!(
+        (version_triplet(latest), version_triplet(current)),
+        (Some(latest), Some(current)) if latest > current
+    )
+}
+
+fn preferred_download_url(assets: &[GitHubAsset]) -> Option<String> {
+    assets
+        .iter()
+        .find(|asset| asset.name.to_ascii_lowercase().ends_with("_x64-setup.exe"))
+        .or_else(|| {
+            assets
+                .iter()
+                .find(|asset| asset.name.to_ascii_lowercase().ends_with(".msi"))
+        })
+        .or_else(|| {
+            assets
+                .iter()
+                .find(|asset| asset.name.to_ascii_lowercase().ends_with(".exe"))
+        })
+        .map(|asset| asset.browser_download_url.clone())
+}
+
+#[tauri::command]
+async fn check_for_updates() -> UpdateCheck {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let fallback = |error: String| UpdateCheck {
+        current_version: current_version.clone(),
+        latest_version: None,
+        update_available: false,
+        release_url: GITHUB_RELEASES_URL.to_string(),
+        download_url: None,
+        error: Some(error),
+    };
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .user_agent(format!("G-Lock/{current_version}"))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => return fallback(error.to_string()),
+    };
+
+    let response = match client
+        .get(GITHUB_LATEST_RELEASE_API)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return fallback(error.to_string()),
+    };
+
+    let release = match response.error_for_status() {
+        Ok(response) => match response.json::<GitHubRelease>().await {
+            Ok(release) => release,
+            Err(error) => return fallback(error.to_string()),
+        },
+        Err(error) => return fallback(error.to_string()),
+    };
+
+    UpdateCheck {
+        current_version: current_version.clone(),
+        latest_version: Some(release.tag_name.clone()),
+        update_available: is_newer_version(&release.tag_name, &current_version),
+        release_url: release.html_url,
+        download_url: preferred_download_url(&release.assets),
+        error: None,
+    }
+}
 
 #[tauri::command]
 fn get_status() -> serde_json::Value {
@@ -211,7 +328,24 @@ fn save_settings(mut config: Config) -> Result<(), String> {
         save_config(&config).map_err(|e| e.to_string())?;
         state.config = config.clone();
     }
+    notify_hotkey_listener();
     Ok(())
+}
+
+fn notify_hotkey_listener() {
+    let thread_id = HOTKEY_THREAD_ID.load(Ordering::Acquire);
+    if thread_id == 0 {
+        return;
+    }
+
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+            thread_id,
+            HOTKEY_RELOAD_MESSAGE,
+            0,
+            0,
+        );
+    }
 }
 
 #[tauri::command]
@@ -315,33 +449,59 @@ fn panic_unlock_logic(app: &AppHandle) {
 
 fn start_hotkey_listener(app_handle: AppHandle) {
     std::thread::spawn(move || {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_CONTROL};
-        use windows_sys::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
+        use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetMessageW, PeekMessageW, MSG, PM_NOREMOVE, WM_HOTKEY,
+        };
 
-        let config = STATE.read().config.clone();
         let hotkey_id = 1_i32;
         let panic_hotkey_id = 2_i32;
-
-        unsafe {
-            let res = RegisterHotKey(0, hotkey_id, 0, config.hotkey_vk);
-            if res == 0 {
-                firewall::log_system_message("SYSTEM ERROR: Failed to register lock hotkey.");
-            }
-            let panic_modifiers = if config.panic_hotkey_ctrl {
-                MOD_CONTROL
-            } else {
-                0
-            };
-            let res = RegisterHotKey(0, panic_hotkey_id, panic_modifiers, config.panic_hotkey_vk);
-            if res == 0 {
-                firewall::log_system_message("SYSTEM ERROR: Failed to register panic hotkey.");
-            }
-        }
-
         let mut msg: MSG = unsafe { std::mem::zeroed() };
+
         unsafe {
+            // Force creation of this thread's message queue before publishing its ID.
+            PeekMessageW(&mut msg, 0, 0, 0, PM_NOREMOVE);
+            HOTKEY_THREAD_ID.store(GetCurrentThreadId(), Ordering::Release);
+
+            let register_hotkeys = |config: &Config| {
+                let mut lock_modifiers = MOD_NOREPEAT;
+                if config.hotkey_ctrl {
+                    lock_modifiers |= MOD_CONTROL;
+                }
+                if config.hotkey_alt {
+                    lock_modifiers |= MOD_ALT;
+                }
+                if config.hotkey_shift {
+                    lock_modifiers |= MOD_SHIFT;
+                }
+                let lock_result = RegisterHotKey(0, hotkey_id, lock_modifiers, config.hotkey_vk);
+                if lock_result == 0 {
+                    firewall::log_system_message("SYSTEM ERROR: Failed to register lock hotkey.");
+                }
+
+                let panic_modifiers = if config.panic_hotkey_ctrl {
+                    MOD_CONTROL | MOD_NOREPEAT
+                } else {
+                    MOD_NOREPEAT
+                };
+                let panic_result =
+                    RegisterHotKey(0, panic_hotkey_id, panic_modifiers, config.panic_hotkey_vk);
+                if panic_result == 0 {
+                    firewall::log_system_message("SYSTEM ERROR: Failed to register panic hotkey.");
+                }
+            };
+
+            register_hotkeys(&STATE.read().config.clone());
+
             while GetMessageW(&mut msg, 0, 0, 0) != 0 {
-                if msg.message == WM_HOTKEY {
+                if msg.message == HOTKEY_RELOAD_MESSAGE {
+                    UnregisterHotKey(0, hotkey_id);
+                    UnregisterHotKey(0, panic_hotkey_id);
+                    register_hotkeys(&STATE.read().config.clone());
+                } else if msg.message == WM_HOTKEY {
                     match msg.wParam as i32 {
                         id if id == hotkey_id => toggle_lock_logic(&app_handle),
                         id if id == panic_hotkey_id => panic_unlock_logic(&app_handle),
@@ -349,6 +509,10 @@ fn start_hotkey_listener(app_handle: AppHandle) {
                     }
                 }
             }
+
+            UnregisterHotKey(0, hotkey_id);
+            UnregisterHotKey(0, panic_hotkey_id);
+            HOTKEY_THREAD_ID.store(0, Ordering::Release);
         }
     });
 }
@@ -503,6 +667,7 @@ pub fn run() {
             clear_list,
             get_settings,
             save_settings,
+            check_for_updates,
             list_log_files,
             read_log_file,
             open_log_file_in_notepad
@@ -552,5 +717,33 @@ mod tests {
         assert!(!is_supported_session("Whitelist"));
         assert!(ensure_blacklist("blacklist").is_ok());
         assert!(ensure_blacklist("whitelist").is_err());
+    }
+
+    #[test]
+    fn release_versions_are_compared_semantically() {
+        assert!(is_newer_version("v2.0.45", "2.0.44"));
+        assert!(is_newer_version("v2.1.0", "2.0.99"));
+        assert!(!is_newer_version("v2.0.44", "2.0.44"));
+        assert!(!is_newer_version("v2.0.43", "2.0.44"));
+        assert!(!is_newer_version("unexpected", "2.0.44"));
+    }
+
+    #[test]
+    fn installer_asset_is_preferred_for_updates() {
+        let assets = vec![
+            GitHubAsset {
+                name: "G-Lock_2.0.45_x64_en-US.msi".to_string(),
+                browser_download_url: "https://example.test/app.msi".to_string(),
+            },
+            GitHubAsset {
+                name: "G-Lock_2.0.45_x64-setup.exe".to_string(),
+                browser_download_url: "https://example.test/setup.exe".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            preferred_download_url(&assets).as_deref(),
+            Some("https://example.test/setup.exe")
+        );
     }
 }

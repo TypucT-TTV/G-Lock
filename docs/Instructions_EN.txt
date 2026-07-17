@@ -24,6 +24,11 @@ The app's taskbar icon also changes color dynamically:
   * Green circle — "Open" mode (safe, default background filtering active).
   * Red circle   — "Locked" mode (new join attempts are blocked).
 
+The version state appears below the logo. "Up to date" means the installed version
+matches the latest published release. "Update available" opens the GitHub download
+for the new installer. If the network is unavailable, G-Lock continues to work and
+lets you retry the check by clicking the message.
+
 SESSION CONTROL
 ---------------
 G-Lock has one control: Open/Locked. The button is located directly in the status card.
@@ -35,13 +40,25 @@ WHY SOLO AND WHITELIST ARE NOT OFFERED
 --------------------------------------
 A joining player first communicates through Rockstar infrastructure, while the useful direct peer IP appears later. UDP packet-size heuristics cannot reliably distinguish every service packet from a player connection. Solo and Whitelist were therefore removed from the supported UI instead of being presented as dependable protection.
 
-F9 HOTKEY
----------
-F9 toggles the Open/Locked state globally.
+GLOBAL HOTKEY
+-------------
+F9 toggles Open/Locked by default. Under "Settings → Global hotkey", click the
+capture field and press an F-key or a combination containing Ctrl or Alt with a letter,
+number, numpad key, or navigation key; Shift may be added. Non-F keys without Ctrl/Alt are rejected so a
+global shortcut cannot interfere with normal typing. The shortcut applies after
+clicking "Save settings".
   * Works globally even when the GTA game window is focused and running in full screen.
-  * Press F9 — locks the session.
-  * Press F9 again — unlocks the session.
-  * Emergency panic unlock is also available via Ctrl + F9.
+  * Press the selected key — locks the session.
+  * Press it again — unlocks the session.
+  * Ctrl + F9 is the fixed fallback open action. It forces Open but does not disable
+    G-Lock, IPS, or persistent blocked-IP rules.
+
+SETTINGS PERSISTENCE
+--------------------
+Settings, the selected hotkey, and blocked IP rules are stored in
+`%LOCALAPPDATA%\G-Lock\data.json`. Installing an update over the existing version
+does not reset them. On first launch, an older `data.json` next to the executable is
+migrated automatically.
 
 INTERFACE ZOOM CONTROL
 -----------------------
@@ -84,7 +101,7 @@ G-Lock does not add its folder to Windows Defender exclusions. If security softw
 
 SCOPE AND LIMITATIONS
 ---------------------
-G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It does not inject code, read game memory, identify players by nickname, or inspect every Windows connection. IPS rate-limits suspicious captured traffic but cannot guarantee protection of the entire internet connection from every volumetric DDoS attack. Connection logs and data.json may contain public IP addresses; review them before sharing.
+G-Lock filters IPv4 UDP P2P traffic on GTA's port 6672. It does not inject code, read game memory, identify players by nickname, or inspect every Windows connection. IPS rate-limits suspicious captured traffic but cannot guarantee protection of the entire internet connection from every volumetric DDoS attack. Connection logs and `%LOCALAPPDATA%\G-Lock\data.json` may contain public IP addresses; review them before sharing.
 
 ORIGIN AND LICENSE
 ------------------
