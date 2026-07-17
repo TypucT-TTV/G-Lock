@@ -70,13 +70,13 @@ jobs:
         run: npm run tauri build
 
       - name: Upload NSIS Setup Installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: G-Lock-Setup
           path: src-tauri/target/release/bundle/nsis/G-Lock_*_x64-setup.exe
 
       - name: Upload MSI Package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: G-Lock-MSI
           path: src-tauri/target/release/bundle/msi/G-Lock_*_x64_en-US.msi
