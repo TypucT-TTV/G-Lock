@@ -201,7 +201,7 @@
       donate_p2: "Я сделал G-Lock для себя. Меня годами преследовали читеры на стримах — крашили игру мне и моим друзьям, срывали эфиры, и сделать с этим ничего было нельзя. Поддержки не было, готовых решений тоже. Тогда я написал защиту сам.",
       donate_p3: "И когда однажды я отыграл целый стрим без единого краша — понял, что это работает. Решил не держать при себе и выложить в открытый доступ, чтобы любой, кого достали гриферы, мог защититься так же.",
       donate_p4: "G-Lock полностью бесплатный, с открытым кодом и без рекламы — и таким останется. Если он спас твой стрим или просто помог спокойно поиграть с друзьями, буду благодарен за любую поддержку. Это идет на время разработки и помогает делать тул лучше. Спасибо, что вы есть 🛡️",
-      btn_donate_da: "🎁 Отправить донат (donationalerts.com)",
+      btn_donate_da: "🎁 Отправить донат",
       blocked_threats_msg: "G-Lock зафиксировал {n} блокировок за эту сессию 🛡️ Если помогло — ",
       support_link: "поддержите разработку"
     },
@@ -297,7 +297,7 @@
       donate_p2: "I originally built G-Lock for myself. For years, griefers and modders stalked me on stream — constantly crashing my game, kicking my friends, and ruining broadcasts. There was no help from support and no working solutions. So, I decided to write my own protection.",
       donate_p3: "When I finally completed a whole stream without a single crash, I knew it worked. I decided to make it open-source so anyone tired of griefers could play peacefully too.",
       donate_p4: "G-Lock is and will always remain completely free, open-source, and ad-free. If it saved your stream or simply helped you and your friends play in peace, I would be grateful for any support. It directly funds development time and helps make this tool even better. Thank you for being here 🛡️",
-      btn_donate_da: "🎁 Send Donation (donationalerts.com)",
+      btn_donate_da: "🎁 Send Donation",
       blocked_threats_msg: "G-Lock recorded {n} blocked events this session 🛡️ If it helped — ",
       support_link: "support development"
     }
@@ -831,6 +831,20 @@
     };
     window.addEventListener("keydown", handleKeyDown);
 
+    // Intercept clicks on external links and open them in default OS browser
+    const handleLinkClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const anchor = target.closest("a");
+      if (anchor) {
+        const urlStr = anchor.getAttribute("href") || "";
+        if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+          e.preventDefault();
+          void invoke("open_url", { url: urlStr });
+        }
+      }
+    };
+    window.addEventListener("click", handleLinkClick);
+
     // Listen to Tauri events
     const statusUnsub = listen("status-changed", () => {
       fetchStatus();
@@ -855,6 +869,7 @@
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("click", handleLinkClick);
       statusUnsub.then(fn => fn());
       listsUnsub.then(fn => fn());
       logUnsub.then(fn => fn());
@@ -916,17 +931,22 @@
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
       <div class="brand-block">
-        <h2>G-Lock <span class="ver">v2.0.46</span></h2>
+        <h2>G-Lock <span class="ver">v2.0.49</span></h2>
         {#if updateState === "available"}
           <a
             class="version-status update-available"
-            href={updateUrl}
+            href="https://github.com/TypucT-TTV/G-Lock/releases"
             target="_blank"
             rel="noopener noreferrer"
             title={latestVersion ? `${activeLang.update_available}: ${latestVersion}` : activeLang.update_available}
           >{activeLang.update_available}</a>
         {:else if updateState === "current"}
-          <span class="version-status current-version">{activeLang.update_current}</span>
+          <a
+            class="version-status current-version"
+            href="https://github.com/TypucT-TTV/G-Lock/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >{activeLang.update_current}</a>
         {:else if updateState === "error"}
           <button type="button" class="version-status version-retry" onclick={checkForUpdates}>{activeLang.update_failed}</button>
         {:else}
@@ -1446,9 +1466,23 @@
               <p class="desc">{activeLang.donate_p3}</p>
               <p class="desc">{activeLang.donate_p4}</p>
             </div>
-            <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" rel="noopener noreferrer" class="donate-btn-large">
-              {activeLang.btn_donate_da}
-            </a>
+            <div class="donate-actions-row">
+              <a href="https://www.twitch.tv/typuct_ttv" target="_blank" rel="noopener noreferrer" class="social-btn twitch" title="Twitch">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/>
+                </svg>
+              </a>
+              
+              <a href="https://www.donationalerts.com/r/typuct_donate" target="_blank" rel="noopener noreferrer" class="donate-btn-large">
+                {activeLang.btn_donate_da}
+              </a>
+
+              <a href="https://t.me/typuct_life" target="_blank" rel="noopener noreferrer" class="social-btn telegram" title="Telegram">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59 1.5-1.55 2.75-2.71 4.18-4.13.16-.16.32-.5-.03-.32-1.89 1.28-5.12 3.41-6.82 4.56-.51.34-1 .51-1.47.5-.52-.01-1.51-.3-2.24-.54-.9-.3-1.61-.46-1.55-.98.03-.27.4-.55 1.12-.84 4.38-1.91 7.3-3.17 8.76-3.79 4.17-1.77 5.04-2.08 5.6-.2.12.38.16.82.16 1.01z"/>
+                </svg>
+              </a>
+            </div>
           </div>
         </section>
       </div>
@@ -1580,6 +1614,7 @@
     color: var(--text-dim);
   }
 
+  .current-version,
   .update-available,
   .version-retry {
     cursor: pointer;
@@ -1596,6 +1631,7 @@
   }
 
   .version-retry:hover,
+  .current-version:hover,
   .update-available:hover {
     color: #fff;
   }
@@ -2653,20 +2689,79 @@
     line-height: 1.6;
   }
 
+  .donate-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .social-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-dim);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+  }
+
+  .social-btn svg {
+    width: 22px;
+    height: 22px;
+    transition: transform 0.3s ease;
+  }
+
+  .social-btn:hover {
+    color: #fff;
+    transform: translateY(-2px);
+  }
+
+  .social-btn.twitch:hover {
+    background-color: rgba(145, 70, 255, 0.15);
+    border-color: #9146ff;
+    box-shadow: 0 0 15px rgba(145, 70, 255, 0.3);
+  }
+
+  .social-btn.telegram:hover {
+    background-color: rgba(36, 161, 222, 0.15);
+    border-color: #24a1de;
+    box-shadow: 0 0 15px rgba(36, 161, 222, 0.3);
+  }
+
+  .social-btn:active {
+    transform: translateY(0);
+  }
+
   .donate-btn-large {
-    display: inline-block;
-    background-color: var(--accent-yellow);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ff9f43, #ffcd3c);
     color: #000;
-    padding: 12px 24px;
-    border-radius: 8px;
+    padding: 12px 32px;
+    border-radius: 30px;
     font-weight: 700;
+    font-size: 1rem;
     text-decoration: none;
-    margin-top: 16px;
-    transition: transform 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 15px rgba(255, 159, 67, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .donate-btn-large:hover {
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 6px 20px rgba(255, 159, 67, 0.45);
+    background: linear-gradient(135deg, #ffa852, #ffe066);
+  }
+
+  .donate-btn-large:active {
+    transform: translateY(0) scale(0.98);
   }
 
   /* Logs Tab Styles */

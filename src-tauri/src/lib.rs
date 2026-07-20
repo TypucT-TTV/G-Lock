@@ -433,6 +433,22 @@ fn open_log_file_in_notepad(filename: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    } else {
+        Err("Invalid URL protocol".to_string())
+    }
+}
+
 fn panic_unlock_logic(app: &AppHandle) {
     let sound_enabled = {
         let mut state = STATE.write();
@@ -670,7 +686,8 @@ pub fn run() {
             check_for_updates,
             list_log_files,
             read_log_file,
-            open_log_file_in_notepad
+            open_log_file_in_notepad,
+            open_url
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

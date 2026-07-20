@@ -178,3 +178,4 @@ src-tauri/target
 # Local assistant and launcher state
 /.claude/settings.local.json
 /Guardian.lnk
+/G-Lock_Portable/
