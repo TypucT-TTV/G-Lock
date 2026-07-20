@@ -931,7 +931,7 @@
     <div class="logo-container">
       <img src="/logo.png" class="logo-img" alt="logo" />
       <div class="brand-block">
-        <h2>G-Lock <span class="ver">v2.0.49</span></h2>
+        <h2>G-Lock <span class="ver">v2.0.50</span></h2>
         {#if updateState === "available"}
           <a
             class="version-status update-available"

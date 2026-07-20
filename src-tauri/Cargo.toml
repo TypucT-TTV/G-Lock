@@ -1,6 +1,6 @@
 [package]
 name = "g-lock-tauri"
-version = "2.0.49"
+version = "2.0.50"
 description = "Firewall-based GTA Online session protection"
 authors = ["G-Lock contributors"]
 edition = "2021"

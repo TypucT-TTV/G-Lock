@@ -1155,6 +1155,12 @@ pub fn stop_firewall_worker() {
 
 pub fn shutdown_firewall() {
     stop_firewall_worker();
+
+    // Send a dummy UDP packet to localhost on the active G-Lock port to unblock w.recv()
+    let port = STATE.read().current_port;
+    if let Ok(socket) = std::net::UdpSocket::bind("127.0.0.1:0") {
+        let _ = socket.send_to(&[0], format!("127.0.0.1:{}", port));
+    }
 }
 
 #[cfg(test)]
